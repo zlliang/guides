@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "topic": "Makefile",
+    "path": {
+      "en": "en/makefile.md",
+      "cn": "cn/makefile.md"
+    },
+    "created_date": "2025-10-30",
+    "updated_date": "2025-10-30",
+    "generated_by": "Amp"
+  }
+]

@@ -76,11 +76,12 @@ This file should serve as a structured representation of the same information di
 | Field          | Type     | Description                                                          |
 | -------------- | -------- | -------------------------------------------------------------------- |
 | `topic`        | `string` | The subject of the guide.                                            |
-| `en_path`      | `string` | Relative path to the English version (e.g., `en/makefile-guide.md`). |
-| `cn_path`      | `string` | Relative path to the Chinese version (e.g., `cn/makefile-guide.md`). |
+| `path`         | `object` | An object containing language-specific paths.                        |
+| `path.en`      | `string` | Relative path to the English version (e.g., `en/makefile.md`).       |
+| `path.cn`      | `string` | Relative path to the Chinese version (e.g., `cn/makefile.md`).       |
 | `created_date` | `string` | The initial creation date in `YYYY-MM-DD` format.                    |
 | `updated_date` | `string` | The most recent update date in `YYYY-MM-DD` format.                  |
-| `genetated_by` | `string` | The AI assistant that generated the content.                         |
+| `generated_by` | `string` | The AI assistant that generated the content.                         |
 
 #### Example `guides.json`
 
@@ -88,20 +89,45 @@ This file should serve as a structured representation of the same information di
 [
   {
     "topic": "Makefile",
-    "en_path": "en/makefile-guide.md",
-    "cn_path": "cn/makefile-guide.md",
+    "path": {
+      "en": "en/makefile.md",
+      "cn": "cn/makefile.md"
+    },
     "created_date": "2025-10-30",
-    "updated_date": "2025-10-30"
+    "updated_date": "2025-10-30",
+    "generated_by": "Amp"
   },
   {
     "topic": "Zig Programming Language",
-    "en_path": "en/zig-guide.md",
-    "cn_path": "cn/zig-guide.md",
+    "path": {
+      "en": "en/zig.md",
+      "cn": "cn/zig.md"
+    },
     "created_date": "2025-10-30",
-    "updated_date": "2025-10-30"
+    "updated_date": "2025-10-30",
+    "generated_by": "Amp"
   }
 ]
 ```
 
 * Ensure that `guides.json` is kept **synchronized** with the `README.md` table at all times.
 * When a guide is updated, modify only its corresponding entry rather than regenerating the entire file.
+
+## Git Commit Conventions
+
+All commits must follow the **[Conventional Commits](https://www.conventionalcommits.org/)** specification:
+
+* Use the format: `<type>(<scope>): <description>`
+* Common types for this repository:
+  * `docs:` - Adding or updating documentation/guides
+  * `feat:` - Adding new features or capabilities
+  * `fix:` - Bug fixes
+  * `chore:` - Maintenance tasks (updating metadata, etc.)
+  * `refactor:` - Restructuring without changing functionality
+
+### Examples
+
+* `docs: add Makefile guide in English and Chinese`
+* `docs(makefile): update advanced patterns section`
+* `chore: update guides.json structure`
+* `feat: add search functionality to README`
