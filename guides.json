@@ -1,9 +1,9 @@
 [
   {
-    "topic": "Makefile",
+    "topic": "Make & Makefile",
     "path": {
-      "en": "en/makefile.md",
-      "cn": "cn/makefile.md"
+      "en": "en/make.md",
+      "cn": "cn/make.md"
     },
     "created_date": "2025-10-30",
     "updated_date": "2025-10-30",
