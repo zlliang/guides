@@ -8,5 +8,15 @@
     "created_date": "2025-10-30",
     "updated_date": "2025-10-30",
     "generated_by": "Amp"
+  },
+  {
+    "topic": "Zig Programming Language",
+    "path": {
+      "en": "en/zig.md",
+      "cn": "cn/zig.md"
+    },
+    "created_date": "2025-10-30",
+    "updated_date": "2025-10-30",
+    "generated_by": "Amp"
   }
 ]
