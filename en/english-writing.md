@@ -15,11 +15,11 @@ A comprehensive guide to writing clearly, concisely, and idiomatically in Englis
 ### Common Fixes
 
 ```
-❌ utilize → ✓ use
-❌ in order to → ✓ to
-❌ it is important to note that → ✓ note that / delete
-❌ at this point in time → ✓ now
-❌ due to the fact that → ✓ because
+✗ utilize → ✓ use
+✗ in order to → ✓ to
+✗ it is important to note that → ✓ note that / delete
+✗ at this point in time → ✓ now
+✗ due to the fact that → ✓ because
 ```
 
 ### Structure Template
@@ -68,7 +68,7 @@ Clarity means your reader understands exactly what you mean.
 
 **Write Simple Sentences**:
 ```
-❌ The implementation of the algorithm, which was designed to optimize 
+✗ The implementation of the algorithm, which was designed to optimize 
    performance, resulted in significant improvements.
    
 ✓ We implemented an algorithm that made the system 3x faster.
@@ -76,20 +76,20 @@ Clarity means your reader understands exactly what you mean.
 
 **Use Concrete Words**:
 ```
-❌ We need to enhance our velocity.
+✗ We need to enhance our velocity.
 ✓ We need to ship faster.
 ```
 
 **Define Technical Terms**:
 ```
-❌ Use memoization to avoid recomputing.
+✗ Use memoization to avoid recomputing.
 
 ✓ Use memoization—caching results of function calls—to avoid recomputing.
 ```
 
 **One Idea Per Sentence**:
 ```
-❌ The function validates input, which should be a string, and returns 
+✗ The function validates input, which should be a string, and returns 
    true if valid, otherwise false, and logs errors.
 
 ✓ The function validates input strings. It returns true if valid, 
@@ -102,39 +102,39 @@ Every word must serve a purpose.
 
 **Cut Filler Words**:
 ```
-❌ It should be noted that...
-❌ It is important to mention that...
-❌ Basically...
-❌ Actually...
+✗ It should be noted that...
+✗ It is important to mention that...
+✗ Basically...
+✗ Actually...
 
 ✓ [Delete these phrases]
 ```
 
 **Prefer Active Voice**:
 ```
-❌ The bug was fixed by the team.
+✗ The bug was fixed by the team.
 ✓ The team fixed the bug.
 
-❌ The decision was made to refactor.
+✗ The decision was made to refactor.
 ✓ We decided to refactor.
 ```
 
 **Eliminate Redundancy**:
 ```
-❌ completely finished → finished
-❌ final result → result
-❌ past history → history
-❌ advance planning → planning
-❌ free gift → gift
+✗ completely finished → finished
+✗ final result → result
+✗ past history → history
+✗ advance planning → planning
+✗ free gift → gift
 ```
 
 **Shorten Phrases**:
 ```
-❌ at the present time → now
-❌ in the event that → if
-❌ for the purpose of → to
-❌ with regard to → about
-❌ a number of → several / many
+✗ at the present time → now
+✗ in the event that → if
+✗ for the purpose of → to
+✗ with regard to → about
+✗ a number of → several / many
 ```
 
 ### Correctness
@@ -144,15 +144,15 @@ Every word must serve a purpose.
 *Subject-Verb Agreement*:
 ```
 ✓ The system works well.
-❌ The system work well.
+✗ The system work well.
 
 ✓ The developers are ready.
-❌ The developers is ready.
+✗ The developers is ready.
 ```
 
 *Pronoun Clarity*:
 ```
-❌ When you update the cache, it might fail.
+✗ When you update the cache, it might fail.
    (What might fail? The cache or the update?)
 
 ✓ When you update the cache, the update might fail.
@@ -160,7 +160,7 @@ Every word must serve a purpose.
 
 *Parallel Structure*:
 ```
-❌ I like reading, to write, and code.
+✗ I like reading, to write, and code.
 ✓ I like reading, writing, and coding.
 ✓ I like to read, write, and code.
 ```
@@ -300,7 +300,7 @@ Good:
 
 **Keep Them Simple**:
 ```python
-# ❌ Too much at once
+# ✗ Too much at once
 class ComplexCacheSystem:
     def __init__(self, size, eviction_policy, serializer):
         self.cache = LRUCache(size)
@@ -634,15 +634,15 @@ I'm still learning, but here's what I know now...
 
 **Don't Use Big Words to Sound Smart**:
 ```
-❌ Utilize → ✓ Use
-❌ Commence → ✓ Start
-❌ Terminate → ✓ End
-❌ Facilitate → ✓ Help
+✗ Utilize → ✓ Use
+✗ Commence → ✓ Start
+✗ Terminate → ✓ End
+✗ Facilitate → ✓ Help
 ```
 
 **Don't Write Long Sentences**:
 ```
-❌ The system, which was designed to handle large-scale data 
+✗ The system, which was designed to handle large-scale data 
    processing tasks, utilizes a distributed architecture that 
    allows it to scale horizontally across multiple nodes.
 
@@ -654,10 +654,10 @@ I'm still learning, but here's what I know now...
 
 **Provide Specifics**:
 ```
-❌ The performance improved significantly.
+✗ The performance improved significantly.
 ✓ Response time dropped from 2 seconds to 200ms.
 
-❌ It's much faster now.
+✗ It's much faster now.
 ✓ It's 10x faster.
 ```
 
@@ -665,7 +665,7 @@ I'm still learning, but here's what I know now...
 
 **Trust Your Reader**:
 ```
-❌ First, we need to import the library, which is a collection 
+✗ First, we need to import the library, which is a collection 
    of pre-written code that provides functionality...
 
 ✓ First, import the library:
@@ -676,10 +676,10 @@ I'm still learning, but here's what I know now...
 
 **Take Ownership**:
 ```
-❌ Mistakes were made.
+✗ Mistakes were made.
 ✓ We made mistakes.
 
-❌ The decision was made to proceed.
+✗ The decision was made to proceed.
 ✓ We decided to proceed.
 ```
 

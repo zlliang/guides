@@ -15,11 +15,11 @@
 ### 常见修正
 
 ```
-❌ utilize → ✓ use
-❌ in order to → ✓ to
-❌ it is important to note that → ✓ note that / 删除
-❌ at this point in time → ✓ now
-❌ due to the fact that → ✓ because
+✗ utilize → ✓ use
+✗ in order to → ✓ to
+✗ it is important to note that → ✓ note that / 删除
+✗ at this point in time → ✓ now
+✗ due to the fact that → ✓ because
 ```
 
 ### 结构模板
@@ -68,7 +68,7 @@
 
 **写简单的句子**：
 ```
-❌ The implementation of the algorithm, which was designed to optimize 
+✗ The implementation of the algorithm, which was designed to optimize 
    performance, resulted in significant improvements.
    
 ✓ We implemented an algorithm that made the system 3x faster.
@@ -76,20 +76,20 @@
 
 **使用具体的词**：
 ```
-❌ We need to enhance our velocity.
+✗ We need to enhance our velocity.
 ✓ We need to ship faster.
 ```
 
 **定义技术术语**：
 ```
-❌ Use memoization to avoid recomputing.
+✗ Use memoization to avoid recomputing.
 
 ✓ Use memoization—caching results of function calls—to avoid recomputing.
 ```
 
 **一句一个想法**：
 ```
-❌ The function validates input, which should be a string, and returns 
+✗ The function validates input, which should be a string, and returns 
    true if valid, otherwise false, and logs errors.
 
 ✓ The function validates input strings. It returns true if valid, 
@@ -102,39 +102,39 @@
 
 **删除填充词**：
 ```
-❌ It should be noted that...
-❌ It is important to mention that...
-❌ Basically...
-❌ Actually...
+✗ It should be noted that...
+✗ It is important to mention that...
+✗ Basically...
+✗ Actually...
 
 ✓ [删除这些短语]
 ```
 
 **偏好主动语态**：
 ```
-❌ The bug was fixed by the team.
+✗ The bug was fixed by the team.
 ✓ The team fixed the bug.
 
-❌ The decision was made to refactor.
+✗ The decision was made to refactor.
 ✓ We decided to refactor.
 ```
 
 **消除冗余**：
 ```
-❌ completely finished → finished
-❌ final result → result
-❌ past history → history
-❌ advance planning → planning
-❌ free gift → gift
+✗ completely finished → finished
+✗ final result → result
+✗ past history → history
+✗ advance planning → planning
+✗ free gift → gift
 ```
 
 **缩短短语**：
 ```
-❌ at the present time → now
-❌ in the event that → if
-❌ for the purpose of → to
-❌ with regard to → about
-❌ a number of → several / many
+✗ at the present time → now
+✗ in the event that → if
+✗ for the purpose of → to
+✗ with regard to → about
+✗ a number of → several / many
 ```
 
 ### 正确性
@@ -144,15 +144,15 @@
 *主谓一致*：
 ```
 ✓ The system works well.
-❌ The system work well.
+✗ The system work well.
 
 ✓ The developers are ready.
-❌ The developers is ready.
+✗ The developers is ready.
 ```
 
 *代词清晰*：
 ```
-❌ When you update the cache, it might fail.
+✗ When you update the cache, it might fail.
    （什么可能失败？缓存还是更新？）
 
 ✓ When you update the cache, the update might fail.
@@ -160,7 +160,7 @@
 
 *平行结构*：
 ```
-❌ I like reading, to write, and code.
+✗ I like reading, to write, and code.
 ✓ I like reading, writing, and coding.
 ✓ I like to read, write, and code.
 ```
@@ -300,7 +300,7 @@ of searching every drawer."
 
 **保持简单**：
 ```python
-# ❌ 一次太多
+# ✗ 一次太多
 class ComplexCacheSystem:
     def __init__(self, size, eviction_policy, serializer):
         self.cache = LRUCache(size)
@@ -634,15 +634,15 @@ I'm still learning, but here's what I know now...
 
 **不要用大词听起来聪明**：
 ```
-❌ Utilize → ✓ Use
-❌ Commence → ✓ Start
-❌ Terminate → ✓ End
-❌ Facilitate → ✓ Help
+✗ Utilize → ✓ Use
+✗ Commence → ✓ Start
+✗ Terminate → ✓ End
+✗ Facilitate → ✓ Help
 ```
 
 **不要写长句子**：
 ```
-❌ The system, which was designed to handle large-scale data 
+✗ The system, which was designed to handle large-scale data 
    processing tasks, utilizes a distributed architecture that 
    allows it to scale horizontally across multiple nodes.
 
@@ -654,10 +654,10 @@ I'm still learning, but here's what I know now...
 
 **提供具体内容**：
 ```
-❌ The performance improved significantly.
+✗ The performance improved significantly.
 ✓ Response time dropped from 2 seconds to 200ms.
 
-❌ It's much faster now.
+✗ It's much faster now.
 ✓ It's 10x faster.
 ```
 
@@ -665,7 +665,7 @@ I'm still learning, but here's what I know now...
 
 **相信你的读者**：
 ```
-❌ First, we need to import the library, which is a collection 
+✗ First, we need to import the library, which is a collection 
    of pre-written code that provides functionality...
 
 ✓ First, import the library:
@@ -676,10 +676,10 @@ I'm still learning, but here's what I know now...
 
 **承担责任**：
 ```
-❌ Mistakes were made.
+✗ Mistakes were made.
 ✓ We made mistakes.
 
-❌ The decision was made to proceed.
+✗ The decision was made to proceed.
 ✓ We decided to proceed.
 ```
 
