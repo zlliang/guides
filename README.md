@@ -15,3 +15,4 @@ The assistant will generate both language versions and automatically update this
 | Make & Makefile | [en/make.md](en/make.md) | [cn/make.md](cn/make.md) | 2025-10-30 | 2025-10-30 | [Amp](https://ampcode.com) |
 | Zig Programming Language | [en/zig.md](en/zig.md) | [cn/zig.md](cn/zig.md) | 2025-10-30 | 2025-10-30 | [Amp](https://ampcode.com) |
 | Unicode Characters for TUI | [en/unicode-for-tui.md](en/unicode-for-tui.md) | [cn/unicode-for-tui.md](cn/unicode-for-tui.md) | 2025-10-30 | 2025-10-30 | [Amp](https://ampcode.com) |
+| English Writing | [en/english-writing.md](en/english-writing.md) | [cn/english-writing.md](cn/english-writing.md) | 2025-11-03 | 2025-11-03 | [Amp](https://ampcode.com) |

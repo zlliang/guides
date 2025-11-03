@@ -28,5 +28,15 @@
     "created_date": "2025-10-30",
     "updated_date": "2025-10-30",
     "generated_by": "Amp"
+  },
+  {
+    "topic": "English Writing",
+    "path": {
+      "en": "en/english-writing.md",
+      "cn": "cn/english-writing.md"
+    },
+    "created_date": "2025-11-03",
+    "updated_date": "2025-11-03",
+    "generated_by": "Amp"
   }
 ]
