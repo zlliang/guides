@@ -476,8 +476,10 @@ exact moment: when reality doesn't match the pitch deck."
 - 每一步都建立在上一步的基础上
 
 **学习资源**：
+- [What color is your function?](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/)
+- [Crafting "Crafting Interpreters"](https://journal.stuffwithstuff.com/2020/04/05/crafting-crafting-interpreters/)
+- [Stupid Dog](https://journal.stuffwithstuff.com/2022/02/13/stupid-dog/)
 - [Crafting Interpreters](https://craftinginterpreters.com/)
-- [Game Programming Patterns](https://gameprogrammingpatterns.com/)
 
 ### Simon Willison
 

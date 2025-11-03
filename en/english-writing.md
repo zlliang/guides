@@ -476,8 +476,10 @@ Good stories have:
 - Each step builds on the last
 
 **Learn From**:
+- [What color is your function?](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/)
+- [Crafting "Crafting Interpreters"](https://journal.stuffwithstuff.com/2020/04/05/crafting-crafting-interpreters/)
+- [Stupid Dog](https://journal.stuffwithstuff.com/2022/02/13/stupid-dog/)
 - [Crafting Interpreters](https://craftinginterpreters.com/)
-- [Game Programming Patterns](https://gameprogrammingpatterns.com/)
 
 ### Simon Willison
 
