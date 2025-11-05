@@ -38,5 +38,15 @@
     "created_date": "2025-11-03",
     "updated_date": "2025-11-03",
     "generated_by": "Amp"
+  },
+  {
+    "topic": "Fish Shell",
+    "path": {
+      "en": "en/fish-shell.md",
+      "cn": "cn/fish-shell.md"
+    },
+    "created_date": "2025-11-05",
+    "updated_date": "2025-11-05",
+    "generated_by": "Amp"
   }
 ]
