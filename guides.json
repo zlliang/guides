@@ -62,8 +62,8 @@
   {
     "topic": "C Programming Language",
     "path": {
-      "en": "en/c-programming.md",
-      "cn": "cn/c-programming.md"
+      "en": "en/c.md",
+      "cn": "cn/c.md"
     },
     "created_date": "2025-11-22",
     "updated_date": "2025-11-22",
