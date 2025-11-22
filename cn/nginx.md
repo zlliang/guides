@@ -1,285 +1,607 @@
-# Nginx：完整指南
+# Nginx：深度内幕与实战指南
 
-Nginx（发音为 "engine-x"）是一个高性能的 HTTP 服务器、反向代理和邮件代理服务器。它由 Igor Sysoev 于 2004 年创建，旨在解决 C10K 问题（即同时处理 10,000 个并发连接），现已成为现代互联网的骨干。它以稳定性、丰富的功能集、简单的配置和低资源消耗而闻名。
+Nginx（发音为 "engine-x"）是世界上最流行的 Web 服务器、反向代理和负载均衡器。自 2004 年 Igor Sysoev 发布以来，它从根本上改变了互联网的运作方式，推动了 Web 架构从 90 年代笨重的“每连接一进程”模型向现代轻量级、异步、事件驱动的并发模型转变。
 
-本指南是对 Nginx 的深度剖析，涵盖从基本操作到内部架构、高级配置模式以及大规模工程团队使用的性能调优技巧。
+本指南是一份详尽的资源，专为需要从运维者和架构师角度深入理解 Nginx 的工程师设计。它涵盖了内部机制、高级配置、内核级调优、安全加固以及围绕 OpenResty 和 Lua 的生态系统。
 
-## 快速参考
+## 目录
 
-| 任务 | 命令 / 语法 | 说明 |
-| :--- | :--- | :--- |
-| **启动** | `nginx` | 启动服务器。 |
-| **停止** | `nginx -s stop` | 快速关闭。 |
-| **退出** | `nginx -s quit` | 优雅关闭（等待工作进程完成当前请求）。 |
-| **重载** | `nginx -s reload` | 重新加载配置而不中断连接。 |
-| **测试配置** | `nginx -t` | 检查配置文件语法的有效性。 |
-| **版本** | `nginx -v` / `nginx -V` | 显示版本 / 显示构建详细信息（模块、参数）。 |
-| **信号** | `kill -HUP <pid>` | 向主进程发送信号（等同于 reload）。 |
-
-### 关键配置块
-
-```nginx
-user www-data;              # User 上下文（运行用户）
-worker_processes auto;      # Main 上下文（全局设置）
-
-events {                    # Events 上下文
-    worker_connections 1024;
-}
-
-http {                      # HTTP 上下文
-    server {                # Server 上下文（虚拟主机）
-        listen 80;
-        server_name example.com;
-
-        location / {        # Location 上下文（URI 路由）
-            root /var/www/html;
-        }
-    }
-}
-```
-
-## 历史与 C10K 问题
-
-在 Nginx 出现之前，占主导地位的 Web 服务器是 Apache HTTP Server。Apache 使用“每个连接一个进程”或“每个连接一个线程”的模型。虽然这种模型很稳健，但它难以扩展：随着并发连接数的增加，内存占用和上下文切换的开销呈线性增长，最终导致服务器饱和。这就是著名的 **C10K 问题**。
-
-Igor Sysoev 设计 Nginx 时采用了根本不同的架构：**事件驱动和异步非阻塞**。Nginx 不会为每个客户端创建一个新进程，而是使用操作系统提供的高效事件多路复用机制（如 Linux 上的 `epoll` 或 BSD 上的 `kqueue`）在单个进程中处理数千个连接。
+1.  [架构与内部原理](#架构与内部原理)
+2.  [安装与编译选项](#安装与编译选项)
+3.  [配置哲学与语法](#配置哲学与语法)
+4.  [HTTP 核心机制](#http-核心机制)
+5.  [反向代理与负载均衡](#反向代理与负载均衡)
+6.  [内容缓存](#内容缓存)
+7.  [安全与加固](#安全与加固)
+8.  [性能调优与内核优化](#性能调优与内核优化)
+9.  [可观测性与调试](#可观测性与调试)
+10. [使用 Lua 扩展 Nginx (OpenResty)](#使用-lua-扩展-nginx-openresty)
+11. [从 Apache 迁移](#从-apache-迁移)
 
 ## 架构与内部原理
 
-理解 Nginx 的底层工作原理对于调优和故障排查至关重要。
+要掌握 Nginx，首先必须理解它如何与操作系统交互。
 
-### Master-Worker 模型
+### 事件驱动模型
 
-Nginx 使用多进程架构，但与 Apache 的 Prefork 模块方式不同。
+传统的 Web 服务器（如 Prefork 模式下的 Apache）为每个传入连接生成一个新的进程或线程。即使连接处于空闲状态（例如，用户网络缓慢，或 Keep-Alive 连接等待新请求），这也会占用内存和 CPU 资源。
 
-1.  **Master 进程（主进程）：**
-    *   以 `root` 身份运行。
-    *   读取并验证配置。
-    *   绑定特权端口（如 80/443）。
-    *   生成和管理 Worker 进程。
-    *   处理信号（HUP, TERM, QUIT）。
-    *   **关键点**：它本身不处理网络流量。
+Nginx 使用**异步、非阻塞、事件驱动的架构**。
 
-2.  **Worker 进程（工作进程）：**
-    *   以非特权用户身份运行（如 `nginx` 或 `www-data`）。
-    *   处理实际的网络连接。
-    *   通常每个 CPU 核心配置一个 Worker（`worker_processes auto`）。
-    *   使用共享内存区域进行进程间通信（共享缓存、限流计数器、会话持久化）。
+1.  **Worker 进程**：Nginx 通常运行固定数量的 Worker 进程（通常等于 CPU 核心数）。
+2.  **事件循环**：每个 Worker 运行一个无限循环来处理事件。
+3.  **多路复用**：它使用先进的操作系统机制（Linux 上的 `epoll`，FreeBSD/macOS 上的 `kqueue`，Windows 上的 `IOCP`）同时监控数千个文件描述符（网络套接字、文件）。
 
-### 事件循环 (The Event Loop)
+当网络数据包到达时，操作系统会唤醒 Worker。Worker 读取数据，进行处理（例如解析 HTTP），构建响应，将其写入缓冲区，并立即返回事件循环以处理下一个连接。如果可以避免，它不会等待网络或磁盘。
 
-每个 Worker 进程运行一个非阻塞的事件循环。
+### 进程角色
 
-1.  **Accept**：Worker 接受来自监听套接字的新连接。
-2.  **Multiplexing**：它使用 `epoll` (Linux)、`kqueue` (BSD) 或 `IOCP` (Windows) 同时监控数千个文件描述符（套接字）。
-3.  **Events**：当套接字准备好读取或写入时，操作系统会通知 Worker。
-4.  **Processing**：Worker 执行操作（例如读取请求头）并处理下一个事件。如果操作会阻塞（如从磁盘读取文件或等待上游响应），Nginx 会使用异步 I/O 或线程池（用于文件 I/O）来避免停滞循环。
+*   **Master 进程（主进程）**：主管。它读取配置，绑定端口，并管理 Worker 进程。它处理信号（SIGHUP, SIGTERM）以执行热重载和二进制升级，而不会断开连接。
+*   **Worker 进程（工作进程）**：主力。它们处理网络 I/O，读取/写入磁盘内容，并与上游服务器通信。它们以非特权用户身份运行（例如 `nginx`）。
+*   **Cache Manager / Loader（缓存管理器/加载器）**：专门的进程，用于管理磁盘上的内容缓存（修剪过期项目，将元数据加载到内存中）。
 
-这种架构解释了为什么 Nginx 如此之快：**上下文切换被最小化**。单个 Worker 停留在 CPU 上，并在紧凑的循环中处理许多请求。
+### 阻塞操作与线程池
 
-### 连接处理阶段 (Phases)
+事件循环的阿喀琉斯之踵是**阻塞 I/O**。如果 Worker 阻塞（例如，从繁忙的机械硬盘读取文件），它将停止处理分配给它的*所有*数千个其他连接。
 
-当 Nginx 处理 HTTP 请求时，它会经过 11 个阶段。理解这些阶段有助于编写模块和调试复杂的配置。
+为了缓解这个问题，Nginx 引入了 **线程池 (Thread Pools)**（版本 1.7.11+）。
+*   像 `sendfile()` 这样的操作通常是非阻塞的。
+*   但是，对不在页面缓存（Page Cache）中的文件进行 `read()` 可能会阻塞。
+*   通过 `aio threads`，Nginx 可以将这些阻塞的磁盘操作卸载到单独的线程池中，允许主事件循环继续处理网络数据包。
 
-1.  **Post-Read**：读取头部后立即进行的初始处理（例如 RealIP 模块）。
-2.  **Server Rewrite**：在选择 server 块之前的 URL 修改。
-3.  **Find Config**：Nginx 匹配 `location` 块。
-4.  **Rewrite**：URI 操作（`rewrite` 指令）。
-5.  **Post-Rewrite**：检查重写是否需要跳转到新位置。
-6.  **Pre-Access**：限流（`limit_req`, `limit_conn`）。
-7.  **Access**：认证和访问控制（`auth_basic`, `allow`/`deny`）。
-8.  **Post-Access**：最终检查。
-9.  **Try Files**：检查静态文件是否存在（`try_files`）。
-10. **Content**：生成响应（提供文件、代理到上游、执行 FastCGI）。
-11. **Log**：写入访问日志。
+## 安装与编译选项
 
-## 安装与生态系统
+虽然 `apt-get install nginx` 足以满足基本使用，但高性能环境通常需要自定义构建。
 
-### 源码编译 vs. 软件包
+### 源码编译
 
-*   **OS 软件包 (`apt`, `yum`)**：稳定，易于更新，与 systemd 集成。通常版本较旧。
-*   **官方 Nginx 仓库**：更新更及时。
-*   **源码编译**：如果需要以下情况则必须编译：
-    *   特定的编译器优化。
-    *   移除未使用的模块以减小体积。
-    *   添加标准构建中未包含的第三方模块。
-    *   修补源代码。
+从源码编译允许你：
+1.  静态链接特定的库（OpenSSL, PCRE, zlib）以确保版本兼容性和性能。
+2.  包含第三方模块（例如 `ngx_brotli`, `headers-more`, `vts`）。
+3.  移除未使用的模块以减少攻击面和二进制文件大小。
 
-### 模块
+**先决条件 (Debian/Ubuntu):**
+```bash
+sudo apt-get install build-essential libpcre3-dev libssl-dev zlib1g-dev
+```
 
-Nginx 是模块化的，但与 Apache 不同，传统上模块是*静态编译*到二进制文件中的。从 1.9.11 版本开始，Nginx 支持 **动态模块**（`.so` 文件），可以通过 `load_module` 在运行时加载。
+**编译步骤:**
+```bash
+wget https://nginx.org/download/nginx-1.25.3.tar.gz
+tar -zxvf nginx-1.25.3.tar.gz
+cd nginx-1.25.3
 
-### OpenResty
+# 配置常用优化标志
+./configure \
+    --prefix=/etc/nginx \
+    --sbin-path=/usr/sbin/nginx \
+    --conf-path=/etc/nginx/nginx.conf \
+    --pid-path=/var/run/nginx.pid \
+    --error-log-path=/var/log/nginx/error.log \
+    --http-log-path=/var/log/nginx/access.log \
+    --user=nginx \
+    --group=nginx \
+    --with-http_ssl_module \
+    --with-http_v2_module \
+    --with-http_realip_module \
+    --with-http_stub_status_module \
+    --with-threads \
+    --with-file-aio \
+    --with-cc-opt='-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic'
 
-Nginx 的一个流行发行版，捆绑了 **LuaJIT** 编译器和许多 Nginx 模块。它允许开发人员直接在 Nginx 内部使用 Lua 脚本编写高性能的 Web 应用程序和逻辑（路由、验证、复杂缓存）。
+make
+sudo make install
+```
 
-## 配置哲学
+### 动态模块
 
-配置文件 (`nginx.conf`) 是分层级的。
+自 1.9.11 版本起，Nginx 支持动态模块。这允许你将模块编译为共享对象 (`.so`) 并在运行时通过配置中的 `load_module` 加载，类似于 Apache 的 `LoadModule`。
 
-### 上下文 (Contexts)
+```nginx
+# nginx.conf
+load_module modules/ngx_http_image_filter_module.so;
+```
 
-设置从上层上下文继承到下层上下文。
-*   `main`：全局设置（工作进程、PID 文件）。
-*   `events`：连接处理模型。
-*   `http`：Web 服务器层。
-    *   `server`：定义虚拟主机（域名/IP）。
-        *   `location`：定义如何处理特定的 URI。
+## 配置哲学与语法
 
-### Location 匹配逻辑
+配置文件是**指令 (Directives)** 和 **上下文 (Contexts)** 的树状结构。
 
-这是最常见的困惑来源。Nginx **不会**简单地匹配它找到的第一个块。它遵循特定的优先级顺序：
+### 上下文层级
 
-1.  **精确匹配 (`=`)**：`location = /path`（如果匹配，停止搜索）。
-2.  **优先前缀 (`^~`)**：`location ^~ /static/`（如果匹配，停止正则搜索）。
-3.  **正则表达式 (`~` 或 `~*`)**：按文件中出现的顺序检查。**第一个**匹配的正则获胜。
-4.  **标准前缀**：`location /path`。如果没有正则匹配，则**最长**的匹配前缀获胜。
+1.  **Main Context**：全局范围。指令影响整个应用程序（`user`, `worker_processes`, `pid`）。
+2.  **Events Context**：配置网络模型（`worker_connections`, `use epoll`）。
+3.  **HTTP Context**：Web 服务器层。
+    *   **Upstream Context**：定义后端服务器组。
+    *   **Server Context**：定义虚拟主机（IP/端口/域名组合）。
+        *   **Location Context**：基于 URI 定义路由。
+            *   **Nested Location Context**：进一步的路由细化。
 
-**"If 是邪恶的" (If is Evil) 规则：**
-不鼓励且危险的做法是在 `location` 块内使用 `if`。这可能会导致不可预测的行为，因为 `if` 实际上是 Rewrite 阶段的一部分，发生在内容生成之前。
-*   **坏习惯**：`if ($host = 'example.com') { ... }`
-*   **好习惯**：使用单独的 `server` 块或 `map` 指令。
+### 继承规则
 
-## 核心用例
+大多数指令是向下继承的。如果你在 `http` 块中定义 `root /var/www;`，所有 `server` 块都会继承它，除非它们覆盖了它。
 
-### 1. 静态文件服务器
+*   **Action Directives（动作指令）**：触发出作的指令（如 `rewrite`, `return`, 或 `proxy_pass`）严格遵循继承；它们通常会停止执行或更改阶段。
+*   **Array Directives（数组指令）**：接受多个值的指令（如 `proxy_set_header` 或 `add_header`）通常**不会**合并。如果你在 `server` 块中定义了 `add_header`，然后在 `location` 块中再次定义，`location` 块将完全*替换*父级的头信息。这是一个常见的陷阱。
 
-Nginx 非常擅长提供静态资源（图片、CSS、JS）。
+### "If is Evil" 原则
 
-*   **`sendfile on;`**：允许内核直接将数据从文件系统缓存复制到网络套接字，完全绕过用户空间（零拷贝）。
-*   **`tcp_nopush on;`**：与 sendfile 一起使用，发送完整的数据包，减少网络开销。
-*   **缓存头**：`expires max;`, `add_header Cache-Control "public";`。
+Nginx 中的 `if` 指令技术上属于 `rewrite` 模块。它在请求处理的重写阶段评估条件。
 
-### 2. 反向代理与负载均衡
+**为什么它很危险？**
+Nginx 配置是声明式的。`if` 引入了命令式逻辑，这与通过声明式指令（如 `proxy_pass` 或 `try_files`）配合得不好。
 
-Nginx 位于应用服务器（Node.js, Python, Go, PHP-FPM）之前。
+**错误配置示例：**
+```nginx
+# 危险！
+location / {
+    if ($http_user_agent ~* "Android") {
+        add_header X-Device "Mobile";
+    }
+    try_files $uri $uri/ /index.php;
+}
+```
+在这种情况下，如果条件匹配，`try_files` 可能会被忽略或表现出乎意料，因为 `if` 创建了一个隐式的嵌套 location 块。
+
+**`if` 的安全用法：**
+1.  `return ...`（立即停止处理）。
+2.  `rewrite ... last;`（更改 URI）。
+
+对于基于条件的变量赋值，请改用 `map` 指令。
+
+```nginx
+# 更好：使用 map
+map $http_user_agent $is_mobile {
+    default       0;
+    "~*Android"   1;
+    "~*iPhone"    1;
+}
+```
+
+## HTTP 核心机制
+
+### 服务器选择
+
+Nginx 如何决定使用哪个 `server` 块？
+
+1.  **Listen 指令**：Nginx 首先按 IP 地址和端口过滤。
+2.  **Server Name**：如果多个服务器监听同一端口，它会根据 `server_name` 检查 `Host` 头。
+    *   精确匹配：`www.example.com`
+    *   通配符开头：`*.example.com`
+    *   通配符结尾：`www.example.*`
+    *   正则：`~^(?<user>.+)\.example\.net$`
+3.  **Default Server**：如果没有找到匹配项，它使用 `listen` 指令中标记为 `default_server` 的服务器，或者定义的第一个服务器。
+
+### Location 匹配深度解析
+
+`location` 指令匹配 **标准化 URI**（解码后，相对路径，无查询字符串）。
+
+**优先级顺序（牢记）：**
+
+1.  **`=` (精确匹配)**：`location = /favicon.ico`。如果匹配，立即停止。
+2.  **`^~` (优先前缀)**：`location ^~ /images/`。如果最长匹配前缀是 `^~` location，停止正则搜索。
+3.  **`~` (区分大小写正则)**：按定义顺序检查。第一个匹配项获胜。
+4.  **`~*` (不区分大小写正则)**：按定义顺序检查。第一个匹配项获胜。
+5.  **前缀匹配**：`location /`。如果没有正则匹配，使用之前找到的最长前缀匹配。
+
+**示例：**
+```nginx
+location / {
+    # 规则 A (前缀)
+}
+location = / {
+    # 规则 B (精确)
+}
+location /documents/ {
+    # 规则 C (前缀)
+}
+location ^~ /images/ {
+    # 规则 D (优先前缀)
+}
+location ~* \.(gif|jpg)$ {
+    # 规则 E (正则)
+}
+```
+*   请求 `/`：匹配 A 和 B。B 是精确的，所以 **B** 获胜。
+*   请求 `/index.html`：匹配 A。无正则匹配。**A** 获胜。
+*   请求 `/documents/document.html`：匹配 A 和 C。C 更长。无正则匹配。**C** 获胜。
+*   请求 `/images/logo.jpg`：匹配 A 和 D。D 是优先前缀。停止搜索正则。**D** 获胜。（注意：E 被忽略）。
+*   请求 `/documents/logo.jpg`：匹配 A 和 C。检查正则。匹配 E。**E** 获胜。
+
+## 反向代理与负载均衡
+
+Nginx 可以说是最流行的反向代理。它接受请求并通过 HTTP, FastCGI, uWSGI, SCGI 或 Memcached 将其转发到后端服务器（Upstreams）。
+
+### 基本代理
+
+```nginx
+location /api/ {
+    proxy_pass http://backend_server;
+    
+    # 必要的 Header
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    
+    # 超时设置
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+}
+```
+
+**关于 `proxy_pass` 尾部斜杠的说明：**
+*   `proxy_pass http://backend/`：将匹配的 location 部分替换为 `/`。
+    *   请求 `/api/users` -> 上游 `/users`。
+*   `proxy_pass http://backend`：追加完整的 URI。
+    *   请求 `/api/users` -> 上游 `/api/users`。
+
+### 负载均衡策略
+
+使用 `upstream` 定义服务器池。
 
 ```nginx
 upstream backend_cluster {
-    least_conn;                 # 负载均衡算法
-    server 10.0.0.1:8080 weight=3;
-    server 10.0.0.2:8080;
-    keepalive 32;               # 保持与上游的连接打开
+    # 1. 轮询 (Round Robin - 默认)
+    server 10.0.0.1;
+    server 10.0.0.2;
+
+    # 2. 最少连接 (Least Connections - 推荐用于处理时间不一的请求)
+    least_conn;
+    
+    # 3. IP 哈希 (Sticky Sessions)
+    # ip_hash;
+    
+    # 4. 通用哈希 (一致性哈希)
+    # hash $request_uri consistent;
+    
+    # 参数
+    server 10.0.0.3 weight=3;        # 接收 3 倍流量
+    server 10.0.0.4 max_fails=3 fail_timeout=30s; # 熔断器
+    server 10.0.0.5 backup;          # 仅当其他服务器宕机时使用
+}
+```
+
+### 与上游的 Keep-Alive
+
+默认情况下，Nginx 在每个请求后关闭与后端的连接。这对于 TLS 后端或高吞吐量来说效率低下。
+
+启用 Keep-Alive：
+```nginx
+upstream backend {
+    server 10.0.0.1:8080;
+    keepalive 32;  # 保持打开的空闲连接数
 }
 
 server {
-    location /api/ {
-        proxy_pass http://backend_cluster;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+    location / {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;       # Keep-Alive 需要 HTTP/1.1
+        proxy_set_header Connection ""; # 清除 "close" 头
     }
 }
 ```
 
-**负载均衡算法：**
-*   `round-robin`（默认）：顺序分配。
-*   `least_conn`：发送给活动连接数最少的服务器。
-*   `ip_hash`：基于客户端 IP 的会话粘性（Sticky Session）。
-*   `hash $key`：通用哈希（例如按 URL）。
+## 内容缓存
 
-### 3. API 网关
+Nginx 可以使用 `proxy_cache` 充当强大的内容分发网络 (CDN) 节点。
 
-Nginx 广泛用作 API 网关，在请求到达微服务之前处理横切关注点。
-*   **限流**：`limit_req_zone`（漏桶算法）。
-*   **认证**：`auth_request`（将认证委托给子请求），JWT 验证（商业版或第三方模块）。
-*   **请求/响应转换**：修改头部或 JSON 体。
+### 配置缓存区
 
-## 性能调优
+必须在 `http` 上下文中完成。
 
-为了在高流量硬件上充分利用 Nginx：
+```nginx
+http {
+    proxy_cache_path /var/cache/nginx 
+                     levels=1:2 
+                     keys_zone=my_cache:10m 
+                     max_size=10g 
+                     inactive=60m 
+                     use_temp_path=off;
+}
+```
 
-### Worker 配置
-*   `worker_processes auto;`：每个 CPU 核心绑定一个 Worker。
-*   `worker_cpu_affinity`：显式将 Worker 绑定到核心以防止缓存抖动（现代版本中 `auto` 会自动处理）。
-*   `worker_rlimit_nofile`：增加 Worker 进程打开文件描述符的限制（必须 > `worker_connections`）。
+*   `levels=1:2`：目录哈希结构（例如 `/c/29/b7f54...`）。防止一个目录中文件过多。
+*   `keys_zone`：名称和共享内存大小（1MB 存储约 8000 个键）。
+*   `inactive`：在此时间内未访问的内容将被删除。
+*   `use_temp_path=off`：直接写入缓存目录，避免不必要的文件复制。
 
-### 连接限制
-*   `events { worker_connections 10240; }`：每个 Worker 的最大同时连接数。
-*   **最大客户端数公式**：`(worker_processes * worker_connections) / (若是反向代理 ? 2 : 1)`。
-    *   除以 2 是因为代理需要保持一个与客户端的连接和一个与上游的连接。
+### 启用缓存
 
-### Keepalive 优化
-建立 TCP 连接是昂贵的（三次握手）。
-*   **客户端侧**：`keepalive_timeout 65;`（复用连接处理多个请求）。
-*   **上游侧**：
+```nginx
+location / {
+    proxy_cache my_cache;
+    proxy_cache_key "$scheme$request_method$host$request_uri";
+    
+    # 缓存规则
+    proxy_cache_valid 200 302 10m;
+    proxy_cache_valid 404      1m;
+    
+    # 处理错误 (陈旧缓存)
+    # 如果后端宕机 (500/502/504)，即使过期也提供缓存内容。
+    proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+    
+    # 锁定 (防止缓存击穿/Dog-pile effect)
+    # 只有一个请求去后端填充缓存；其他的等待。
+    proxy_cache_lock on;
+    
+    add_header X-Cache-Status $upstream_cache_status; # HIT/MISS/BYPASS
+}
+```
+
+## 安全与加固
+
+Nginx 默认是安全的，但生产环境需要主动加固。
+
+### 1. 隐藏元数据
+防止向扫描器泄露版本号。
+```nginx
+server_tokens off;
+```
+（注意：要完全删除 "Server: nginx" 头，你需要 `headers-more` 模块或重新编译源码）。
+
+### 2. TLS 最佳实践 (2024/2025 版)
+使用 Mozilla 的 SSL 配置生成器（中间配置文件通常最好）。
+
+```nginx
+ssl_protocols TLSv1.2 TLSv1.3; # 丢弃 SSLv3, TLS 1.0, 1.1
+ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+ssl_prefer_server_ciphers off;
+
+# 会话恢复 (性能)
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 1d;
+ssl_session_tickets off;
+
+# HSTS (严格传输安全)
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+```
+
+### 3. 限流 (DDoS 缓解)
+Nginx 使用 **漏桶 (Leaky Bucket)** 算法。
+
+**区域定义：**
+```nginx
+# 基于二进制 IP 地址，每秒 10 个请求
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+```
+
+**应用：**
+```nginx
+location /api/ {
+    limit_req zone=api_limit burst=20 nodelay;
+    # burst=20: 允许 20 个请求的队列。
+    # nodelay: 不要慢下来，如果队列满了直接拒绝。
+}
+```
+
+### 4. 防止缓冲区溢出
+限制客户端可以发送的数据大小。
+
+```nginx
+client_body_buffer_size 16k;
+client_header_buffer_size 1k;
+client_max_body_size 8m;      # 最大上传大小
+large_client_header_buffers 2 1k;
+```
+
+## 性能调优与内核优化
+
+配置 Nginx 只是战斗的一半。你必须调整 Linux 内核以处理高并发。
+
+### Nginx 配置
+```nginx
+worker_processes auto;
+worker_rlimit_nofile 65535; # 进程的文件描述符限制
+
+events {
+    worker_connections 65535;
+    multi_accept on; # 每次唤醒尽可能接受更多连接
+    use epoll;
+}
+
+http {
+    # 文件 I/O
+    sendfile on;
+    tcp_nopush on; # 在一个数据包中发送头部 + 文件开始
+    tcp_nodelay on; # 禁用 Nagle 算法（降低延迟）
+    
+    # Keepalive
+    keepalive_timeout 65;
+    keepalive_requests 1000; # 关闭前复用连接 1000 次
+    
+    # 压缩
+    gzip on;
+    gzip_comp_level 5; # 平衡 CPU 和大小 (1-9)
+    gzip_min_length 256;
+    gzip_types application/json application/javascript text/css text/xml;
+}
+```
+
+### Linux 内核调优 (`/etc/sysctl.conf`)
+Nginx 打开的套接字数量不能超过内核允许的数量。
+
+```ini
+# 最大打开文件数 (系统级)
+fs.file-max = 2097152
+
+# 传入连接积压队列 (Syn Queue)
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+
+# 临时端口 (增加向外代理连接的范围)
+net.ipv4.ip_local_port_range = 1024 65535
+
+# Time Wait 复用 (对于作为客户端连接上游的 Nginx 是安全的)
+net.ipv4.tcp_tw_reuse = 1
+
+# Fin-Wait-2 超时
+net.ipv4.tcp_fin_timeout = 15
+```
+
+应用更改：`sysctl -p`。
+
+此外，验证 `ulimit -n` 对运行 nginx 的用户是否足够高。编辑 `/etc/security/limits.conf`：
+```
+nginx soft nofile 65535
+nginx hard nofile 65535
+```
+
+## 可观测性与调试
+
+### 详细日志
+默认的日志格式通常不足以调试性能问题。
+
+```nginx
+log_format perf '$remote_addr - $remote_user [$time_local] '
+                '"$request" $status $body_bytes_sent '
+                '"$http_referer" "$http_user_agent" '
+                'rt=$request_time urt=$upstream_response_time '
+                'uct=$upstream_connect_time uht=$upstream_header_time';
+
+access_log /var/log/nginx/access.log perf;
+```
+*   `rt`: 总请求时间 (Nginx + 上游)。
+*   `urt`: 上游响应时间 (后端处理时间)。
+*   `uct`: 建立 TCP 连接到后端的时间。
+
+### 调试日志
+要准确跟踪 Nginx 如何处理请求（头部解析，重写规则逻辑），请启用调试日志。**警告：产生海量日志。**
+
+1.  确保 Nginx 编译时带有 `--with-debug`。
+2.  配置：`error_log /var/log/nginx/debug.log debug;`
+3.  或者，仅为特定 IP 启用：
     ```nginx
-    upstream backend {
-        server ...;
-        keepalive 16;
+    events {
+        debug_connection 192.168.1.1;
     }
     ```
-    并且在 location 中：`proxy_http_version 1.1; proxy_set_header Connection "";`
-
-### 缓冲 (Buffering)
-*   `client_body_buffer_size`：如果请求体适合缓冲区，则在内存中处理。如果不适合，则写入临时文件（慢）。
-*   `proxy_buffer_size` / `proxy_buffers`：影响 Nginx 如何从上游读取响应。关闭缓冲（`proxy_buffering off;`）会立即将响应流式传输给客户端，但如果客户端很慢，则会占用 Worker 进程。
-
-## 与替代方案的比较
-
-### Nginx vs. Apache
-*   **架构**：Apache (prefork/worker) 创建线程/进程。Nginx 是事件驱动的。
-*   **性能**：Nginx 在静态文件和高并发方面更快。Apache 在动态内容处理方面具有可比性（因为瓶颈通常在应用运行时，如 PHP）。
-*   **灵活性**：Apache 支持 `.htaccess` 文件进行动态的每目录配置。Nginx 不支持（出于性能原因），需要重新加载主配置。
-
-### Nginx vs. HAProxy
-*   **侧重**：HAProxy 是专用的 TCP/HTTP 负载均衡器。它缺乏 Web 服务器功能（如提供静态文件）。
-*   **可观测性**：HAProxy 通常提供更细粒度的统计数据和开箱即用的详细健康检查。
-*   **用例**：常一起使用。HAProxy 作为边缘入口（L4/L7 均衡），指向 Nginx 层进行终止和路由。
-
-### Nginx vs. Envoy
-*   **时代**：Envoy 诞生于容器/Kubernetes 时代（Service Mesh）。
-*   **动态性**：Envoy 专为快速、API 驱动的配置更新（xDS 协议）而设计，无需重新加载进程。Nginx 需要重新加载配置（SIGHUP）或使用商业版 Nginx Plus API。
-*   **复杂性**：Envoy 手动配置较复杂；通常由控制平面（如 Istio）管理。
-
-## 调试与可观测性
-
-### 日志
-`log_format` 指令允许捕获特定变量。
-```nginx
-log_format detailed '$remote_addr - $remote_user [$time_local] '
-                    '"$request" $status $body_bytes_sent '
-                    '"$http_referer" "$http_user_agent" '
-                    '$request_time $upstream_response_time $pipe';
-```
-*   `$request_time`：处理请求花费的总时间。
-*   `$upstream_response_time`：等待后端花费的时间。
 
 ### Stub Status
-一个简单的模块 (`ngx_http_stub_status_module`) 提供基本指标。
+`ngx_http_stub_status_module` 提供实时指标。
+
 ```nginx
-location /nginx_status {
+location /metrics {
     stub_status;
     allow 127.0.0.1;
     deny all;
 }
 ```
-输出：活动连接数、接受数、处理的请求数。
+输出解释：
+*   `Active connections`: 打开的连接（包括空闲）。
+*   `accepts`: 总接受连接数。
+*   `handled`: 总处理连接数 (接受数 - 失败数)。
+*   `requests`: 总请求数 (处理数 * 请求/连接)。
 
-### 调试
-如果 Nginx 行为异常：
-1.  检查日志：`/var/log/nginx/error.log`。
-2.  启用调试日志（需要 `--with-debug` 编译标志）：`error_log /path/to/log debug;`。
-3.  **配置转储**：`nginx -T` 将完整的解析配置转储到 stdout（有助于查看合并的包含文件）。
+## 使用 Lua 扩展 Nginx (OpenResty)
 
-## 安全最佳实践
+标准 Nginx 配置是声明式的，逻辑有限。**OpenResty** 将 **LuaJIT** 集成到 Nginx 中，允许你以高性能编写请求处理脚本。
 
-1.  **隐藏版本**：`server_tokens off;` 防止泄露 Nginx 版本号。
-2.  **TLS 加固**：
-    *   禁用 SSLv3/TLS1.0/TLS1.1。
-    *   使用强加密套件 (Cipher Suites)。
-    *   启用 HSTS (`Strict-Transport-Security`)。
-3.  **缓冲区溢出保护**：
-    *   `client_body_buffer_size`
-    *   `client_header_buffer_size`
-    *   `client_max_body_size`（限制上传大小）
-    *   `large_client_header_buffers`
-    限制这些可以防止攻击者通过大量请求耗尽内存。
-4.  **以非特权用户运行**：永远不要以 root 身份运行 Worker。
+### 常见用例
+1.  **复杂路由**：基于 Redis 键查找进行路由。
+2.  **认证**：在到达后端之前直接在 Nginx 中验证 OAuth2/JWT 令牌。
+3.  **动态上游**：无需重载即可更改后端目标。
+4.  **WAF**：构建自定义防火墙规则（例如 Lua-Resty-WAF）。
 
-## 参考与资源
+### 示例：Lua 中的 Hello World
+```nginx
+location /lua {
+    default_type 'text/plain';
+    content_by_lua_block {
+        ngx.say("Hello from Lua!")
+        ngx.log(ngx.ERR, "This is a log entry")
+    }
+}
+```
 
-*   [Nginx 官方文档](http://nginx.org/en/docs/)
-*   [Nginx Wiki](https://wiki.nginx.org/Main)
-*   [C10K 问题](http://www.kegel.com/c10k.html)
-*   [OpenResty](https://openresty.org/en/)
-*   [Mozilla SSL 配置生成器](https://ssl-config.mozilla.org/) - 安全 TLS 配置的必备工具。
+### 示例：非阻塞数据库访问
+OpenResty 中的 Lua 脚本在代码风格上是同步的，但在执行上是异步的（协程）。
+
+```lua
+content_by_lua_block {
+    local redis = require "resty.redis"
+    local red = redis:new()
+    
+    red:set_timeout(1000)
+    local ok, err = red:connect("127.0.0.1", 6379)
+    
+    if not ok then
+        ngx.say("failed to connect: ", err)
+        return
+    end
+    
+    local res, err = red:get("my_key")
+    if not res then
+        ngx.say("failed to get: ", err)
+        return
+    end
+    
+    if res == ngx.null then
+        ngx.say("key not found")
+        return
+    end
+    
+    ngx.say("Key value: ", res)
+}
+```
+
+## 从 Apache 迁移
+
+从 Apache 迁移到 Nginx 需要转变思维，从“每个目录的 .htaccess”转向“集中式服务器块”。
+
+### 主要区别
+
+| 特性 | Apache | Nginx |
+| :--- | :--- | :--- |
+| **架构** | 基于进程/线程 | 事件驱动 |
+| **静态文件** | 好 | 极好 (Sendfile/Async I/O) |
+| **配置** | 分布式 (`.htaccess`) | 集中式 (`nginx.conf`) |
+| **PHP** | `mod_php` (嵌入式) | `php-fpm` (Socket 上的 FastCGI) |
+| **重写** | `mod_rewrite` (复杂) | `rewrite` / `return` (更简单) |
+
+### 重写规则转换
+
+**Apache:**
+```apache
+RewriteEngine On
+RewriteRule ^/user/([0-9]+)$ /profile.php?id=$1 [L]
+```
+
+**Nginx:**
+```nginx
+location ~ ^/user/([0-9]+)$ {
+    rewrite ^/user/([0-9]+)$ /profile.php?id=$1 break;
+    # 或者更好，简单地代理给 PHP
+    fastcgi_pass ...;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME /var/www/profile.php;
+    fastcgi_param QUERY_STRING id=$1;
+}
+```
+
+### 替换 .htaccess
+Nginx 不支持 `.htaccess`。这是一个特性，而不是缺陷，因为扫描目录中的 `.htaccess` 文件会产生严重的 I/O 惩罚。你必须将这些规则迁移到主配置的 `server` 块中。
+
+**Wordpress Nginx 配置（经典示例）：**
+Nginx 使用 `try_files` 代替 Wordpress 复杂的 Apache 重写规则。
+
+```nginx
+location / {
+    # 尝试查找文件，然后是目录，然后回退到 index.php
+    try_files $uri $uri/ /index.php?$args;
+}
+
+location ~ \.php$ {
+    include snippets/fastcgi-php.conf;
+    fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+}
+```
+
+## 总结
+
+Nginx 是一个强大的工具，深度理解它会带来丰厚的回报。通过掌握事件循环、Location 搜索优先级以及静态服务和上游代理之间的区别，你可以构建出弹性、安全且极快的系统。
+
+记住：
+1.  **性能**来自非阻塞 I/O 和内核调优。
+2.  **安全**来自最小化攻击面（仅编译所需内容）和严格的 HTTP 头。
+3.  **可靠性**来自理解 Master 和 Worker 进程的区别，并避免在配置中进行阻塞操作。

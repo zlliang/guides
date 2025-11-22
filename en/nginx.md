@@ -1,285 +1,607 @@
-# Nginx: The Complete Guide
+# Nginx: The Comprehensive Insider's Guide
 
-Nginx (pronounced "engine-x") is a high-performance HTTP server, reverse proxy, and mail proxy server. Created by Igor Sysoev in 2004 to solve the C10K problem (handling 10,000 concurrent connections), it has grown to become the backbone of the modern internet. It is renowned for its stability, rich feature set, simple configuration, and low resource consumption.
+Nginx (pronounced "engine-x") is the world's most popular web server, reverse proxy, and load balancer. Since its release in 2004 by Igor Sysoev, it has fundamentally changed how the internet operates, enabling the transition from the heavy, process-per-connection model of the 90s to the lightweight, asynchronous, event-driven concurrency model of the modern web.
 
-This guide serves as a deep dive into Nginx, moving from basic operation to internal architecture, advanced configuration patterns, and performance tuning used by high-scale engineering teams.
+This guide is an exhaustive resource for engineers who need to understand Nginx not just as a user, but as an operator and architect. It covers internal mechanics, advanced configuration, kernel-level tuning, security hardening, and the ecosystem around OpenResty and Lua.
 
-## Quick Reference
+## Table of Contents
 
-| Task | Command / Syntax | Description |
-| :--- | :--- | :--- |
-| **Start** | `nginx` | Start the server. |
-| **Stop** | `nginx -s stop` | Fast shutdown. |
-| **Quit** | `nginx -s quit` | Graceful shutdown (waits for workers). |
-| **Reload** | `nginx -s reload` | Reload config without dropping connections. |
-| **Test Config** | `nginx -t` | Check configuration syntax validity. |
-| **Version** | `nginx -v` / `nginx -V` | Show version / Show build details. |
-| **Signal** | `kill -HUP <pid>` | Send signal to master process (same as reload). |
-
-### Key Configuration Blocks
-
-```nginx
-user www-data;              # User context
-worker_processes auto;      # Main context
-
-events {                    # Events context
-    worker_connections 1024;
-}
-
-http {                      # HTTP context
-    server {                # Server context (Virtual Host)
-        listen 80;
-        server_name example.com;
-
-        location / {        # Location context (URI routing)
-            root /var/www/html;
-        }
-    }
-}
-```
-
-## History and The C10K Problem
-
-Before Nginx, the dominant web server was Apache HTTP Server. Apache used a process-per-connection or thread-per-connection model. While robust, this model struggled to scale: as concurrent connections increased, the memory footprint and context-switching overhead grew linearly, eventually saturating the server. This was known as the **C10K problem**.
-
-Igor Sysoev designed Nginx with a fundamentally different architecture: **event-driven and asynchronous**. Instead of creating a new process for every client, Nginx handles thousands of connections within a single process using efficient event multiplexing mechanisms provided by the OS (like `epoll` on Linux or `kqueue` on BSD).
+1.  [Architecture and Internals](#architecture-and-internals)
+2.  [Installation and Build Options](#installation-and-build-options)
+3.  [Configuration Philosophy and Syntax](#configuration-philosophy-and-syntax)
+4.  [The HTTP Core](#the-http-core)
+5.  [Reverse Proxying and Load Balancing](#reverse-proxying-and-load-balancing)
+6.  [Content Caching](#content-caching)
+7.  [Security and Hardening](#security-and-hardening)
+8.  [Performance Tuning and Kernel Optimization](#performance-tuning-and-kernel-optimization)
+9.  [Observability and Debugging](#observability-and-debugging)
+10. [Extending Nginx with Lua (OpenResty)](#extending-nginx-with-lua-openresty)
+11. [Migration from Apache](#migration-from-apache)
 
 ## Architecture and Internals
 
-Understanding how Nginx works under the hood is critical for tuning and debugging.
+To master Nginx, one must first understand how it interacts with the operating system.
 
-### The Master-Worker Model
+### The Event-Driven Model
 
-Nginx uses a multi-process architecture, but not in the way Apache's Prefork module does.
+Traditional web servers like Apache (in Prefork mode) spawn a new process or thread for every incoming connection. This blocks memory and CPU resources even when the connection is idle (e.g., a user on a slow network, or a Keep-Alive connection waiting for a new request).
 
-1.  **Master Process:**
-    *   Runs as `root`.
-    *   Reads and validates configuration.
-    *   Binds to privileged ports (like 80/443).
-    *   Spawns and manages worker processes.
-    *   Handles signals (HUP, TERM, QUIT).
-    *   **Crucially**, it does not handle network traffic itself.
+Nginx uses an **asynchronous, non-blocking, event-driven architecture**.
 
-2.  **Worker Processes:**
-    *   Run as a non-privileged user (e.g., `nginx` or `www-data`).
-    *   Handle actual network connections.
-    *   There are typically one worker per CPU core (`worker_processes auto`).
-    *   Shared memory zones are used for inter-process communication (shared cache, rate limit counters, session persistence).
+1.  **The Worker Process:** Nginx typically runs a fixed number of worker processes (usually equal to the number of CPU cores).
+2.  **The Event Loop:** Each worker runs an infinite loop that processes events.
+3.  **Multiplexing:** It uses advanced OS mechanisms (`epoll` on Linux, `kqueue` on FreeBSD/macOS, `IOCP` on Windows) to monitor thousands of file descriptors (network sockets, files) simultaneously.
 
-### The Event Loop
+When a network packet arrives, the OS wakes up the worker. The worker reads the data, processes it (e.g., parses HTTP), constructs a response, writes it to the buffer, and immediately returns to the event loop to handle the next connection. It does not wait for the network or disk if it can avoid it.
 
-Each worker process runs a non-blocking event loop.
+### Process Roles
 
-1.  **Accept:** The worker accepts new connections from the listening socket.
-2.  **Multiplexing:** It uses `epoll` (Linux), `kqueue` (BSD), or `IOCP` (Windows) to monitor thousands of file descriptors (sockets) simultaneously.
-3.  **Events:** When a socket is ready to read or write, the OS notifies the worker.
-4.  **Processing:** The worker performs the operation (e.g., read request header) and moves to the next event. If an operation would block (like reading a file from disk or waiting for an upstream response), Nginx uses asynchronous I/O or thread pools (for file I/O) to avoid stalling the loop.
+*   **Master Process:** The supervisor. It reads configuration, binds to ports, and manages worker processes. It handles signals (SIGHUP, SIGTERM) to perform hot reloads and binary upgrades without dropping connections.
+*   **Worker Processes:** The workhorses. They handle network I/O, read/write content to disk, and communicate with upstream servers. They run as an unprivileged user (e.g., `nginx`).
+*   **Cache Manager / Loader:** specialized processes that manage the on-disk content cache (pruning expired items, loading metadata into memory).
 
-This architecture explains why Nginx is fast: **Context switches are minimized.** A single worker stays on the CPU and processes many requests in a tight loop.
+### Blocking Operations and Thread Pools
 
-### Connection Processing Phases
+The Achilles' heel of an event loop is **blocking I/O**. If a worker blocks (e.g., reading a file from a spinning disk that is busy), it stops processing *all* other thousands of connections assigned to it.
 
-When Nginx handles an HTTP request, it passes through a series of 11 phases. Understanding these phases helps in writing modules and debugging complex configs.
+To mitigate this, Nginx introduced **Thread Pools** (version 1.7.11+).
+*   Operations like `sendfile()` are usually non-blocking.
+*   However, `read()` on a file that isn't in the Page Cache can block.
+*   With `aio threads`, Nginx can offload these blocking disk operations to a separate thread pool, allowing the main event loop to continue processing network packets.
 
-1.  **Post-Read:** Initial processing immediately after reading the header (e.g., RealIP module).
-2.  **Server Rewrite:** URL modification before server block selection.
-3.  **Find Config:** Nginx matches the `location` block.
-4.  **Rewrite:** URI manipulation (`rewrite` directive).
-5.  **Post-Rewrite:** Checks if the rewrite requires a jump to a new location.
-6.  **Pre-Access:** Rate limiting (`limit_req`, `limit_conn`).
-7.  **Access:** Authentication and Access Control (`auth_basic`, `allow`/`deny`).
-8.  **Post-Access:** Final checks.
-9.  **Try Files:** Checking for static file existence (`try_files`).
-10. **Content:** Generating the response (serving a file, proxying to upstream, executing FastCGI).
-11. **Log:** Writing the access log.
+## Installation and Build Options
 
-## Installation and Ecosystem
+While `apt-get install nginx` is sufficient for basic usage, high-performance environments often require a custom build.
 
-### Source vs. Package
+### Building from Source
 
-*   **OS Packages (`apt`, `yum`):** Stable, easy to update, integrated with systemd. Usually older versions.
-*   **Official Nginx Repos:** More up-to-date.
-*   **Compiling from Source:** Required if you need:
-    *   Specific compiler optimizations.
-    *   To remove unused modules for a smaller footprint.
-    *   To add 3rd-party modules not included in standard builds.
-    *   To patch the source code.
+Compiling from source allows you to:
+1.  Statically link specific libraries (OpenSSL, PCRE, zlib) to ensure version compatibility and performance.
+2.  Include third-party modules (e.g., `ngx_brotli`, `headers-more`, `vts`).
+3.  Remove unused modules to reduce attack surface and binary size.
 
-### Modules
+**Prerequisites (Debian/Ubuntu):**
+```bash
+sudo apt-get install build-essential libpcre3-dev libssl-dev zlib1g-dev
+```
 
-Nginx is modular, but unlike Apache, modules were traditionally compiled *statically* into the binary. Since version 1.9.11, Nginx supports **Dynamic Modules** (`.so` files), which can be loaded at runtime via `load_module`.
+**Compilation Steps:**
+```bash
+wget https://nginx.org/download/nginx-1.25.3.tar.gz
+tar -zxvf nginx-1.25.3.tar.gz
+cd nginx-1.25.3
 
-### OpenResty
+# Configure with common optimization flags
+./configure \
+    --prefix=/etc/nginx \
+    --sbin-path=/usr/sbin/nginx \
+    --conf-path=/etc/nginx/nginx.conf \
+    --pid-path=/var/run/nginx.pid \
+    --error-log-path=/var/log/nginx/error.log \
+    --http-log-path=/var/log/nginx/access.log \
+    --user=nginx \
+    --group=nginx \
+    --with-http_ssl_module \
+    --with-http_v2_module \
+    --with-http_realip_module \
+    --with-http_stub_status_module \
+    --with-threads \
+    --with-file-aio \
+    --with-cc-opt='-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic'
 
-A popular distribution of Nginx that bundles the **LuaJIT** compiler and many Nginx modules. It allows developers to write high-performance web applications and logic (routing, validation, complex caching) directly within Nginx using Lua scripts.
+make
+sudo make install
+```
 
-## Configuration Philosophy
+### Dynamic Modules
 
-The configuration file (`nginx.conf`) is hierarchical.
+Since version 1.9.11, Nginx supports dynamic modules. This allows you to compile a module as a shared object (`.so`) and load it at runtime via `load_module` in the configuration, similar to Apache's `LoadModule`.
 
-### Contexts
+```nginx
+# nginx.conf
+load_module modules/ngx_http_image_filter_module.so;
+```
 
-Settings inherit from upper contexts to lower contexts.
-*   `main`: Global settings (worker processes, PID file).
-*   `events`: Connection processing models.
-*   `http`: The web server layer.
-    *   `server`: Defines a virtual host (domain/IP).
-        *   `location`: Defines how to process specific URIs.
+## Configuration Philosophy and Syntax
 
-### Location Matching Logic
+The configuration file is a tree-like structure of **Directives** and **Contexts**.
 
-This is the most common source of confusion. Nginx does **not** simply match the first block it finds. It follows a specific priority order:
+### The Context Hierarchy
 
-1.  **Exact Match (`=`)**: `location = /path` (Stops searching if matched).
-2.  **Preferential Prefix (`^~`)**: `location ^~ /static/` (Stops regex search if matched).
-3.  **Regular Expressions (`~` or `~*`)**: Checked in order of appearance in the file. The *first* matching regex wins.
-4.  **Standard Prefix**: `location /path`. The *longest* matching prefix wins if no regex matches.
+1.  **Main Context:** The global scope. Directives here affect the entire application (`user`, `worker_processes`, `pid`).
+2.  **Events Context:** Configures the network model (`worker_connections`, `use epoll`).
+3.  **HTTP Context:** The web server layer.
+    *   **Upstream Context:** Defines groups of backend servers.
+    *   **Server Context:** Defines a Virtual Host (IP/Port/Domain combination).
+        *   **Location Context:** Defines routing based on URI.
+            *   **Nested Location Context:** Further routing refinement.
 
-**The "If is Evil" Rule:**
-Using `if` inside a `location` block is discouraged and dangerous. It can cause unpredictable behavior because `if` is actually part of the Rewrite phase, which happens before content generation.
-*   **Bad:** `if ($host = 'example.com') { ... }`
-*   **Good:** Use separate `server` blocks or `map` directives.
+### Inheritance Rules
 
-## Core Use Cases
+Most directives are inherited downwards. If you define `root /var/www;` in the `http` block, all `server` blocks inherit it unless they override it.
 
-### 1. Static File Server
+*   **Action Directives:** Directives that trigger an action (like `rewrite`, `return`, or `proxy_pass`) do strictly follow inheritance; they often stop execution or change the phase.
+*   **Array Directives:** Directives that accept multiple values (like `proxy_set_header` or `add_header`) generally **do not** merge. If you define `add_header` in a `server` block and then again in a `location` block, the `location` block *replaces* the parent's headers entirely. This is a common pitfall.
 
-Nginx excels at serving static assets (images, CSS, JS).
+### The "If is Evil" Principle
 
-*   **`sendfile on;`**: Allows the kernel to copy data directly from the file system cache to the network socket, bypassing user space entirely (Zero Copy).
-*   **`tcp_nopush on;`**: Used with sendfile to send full packets, reducing network overhead.
-*   **Caching headers:** `expires max;`, `add_header Cache-Control "public";`.
+The `if` directive in Nginx is technically part of the `rewrite` module. It evaluates conditions at the rewrite phase of the request processing.
 
-### 2. Reverse Proxy & Load Balancer
+**Why is it dangerous?**
+Nginx configuration is declarative. `if` introduces imperative logic that interacts poorly with other declarative directives (like `proxy_pass` or `try_files`).
 
-Nginx sits in front of application servers (Node.js, Python, Go, PHP-FPM).
+**Example of Broken Config:**
+```nginx
+# DANGEROUS
+location / {
+    if ($http_user_agent ~* "Android") {
+        add_header X-Device "Mobile";
+    }
+    try_files $uri $uri/ /index.php;
+}
+```
+In this case, if the condition matches, `try_files` might be ignored or behave unexpectedly because `if` creates an implicit nested location block.
+
+**Safe usage of `if`:**
+1.  `return ...` (immediately stopping processing).
+2.  `rewrite ... last;` (changing the URI).
+
+For variable assignment based on conditions, use the `map` directive instead.
+
+```nginx
+# BETTER: Using map
+map $http_user_agent $is_mobile {
+    default       0;
+    "~*Android"   1;
+    "~*iPhone"    1;
+}
+```
+
+## The HTTP Core
+
+### Server Selection
+
+How does Nginx decide which `server` block to use?
+
+1.  **Listen Directive:** Nginx first filters by IP address and Port.
+2.  **Server Name:** If multiple servers listen on the same port, it checks the `Host` header against `server_name`.
+    *   Exact match: `www.example.com`
+    *   Wildcard start: `*.example.com`
+    *   Wildcard end: `www.example.*`
+    *   Regex: `~^(?<user>.+)\.example\.net$`
+3.  **Default Server:** If no match is found, it uses the server marked `default_server` in the `listen` directive, or the first one defined.
+
+### Location Matching Deep Dive
+
+The `location` directive matches the **Normalized URI** (decoded, relative path, no query string).
+
+**Priority Order (Memorize This):**
+
+1.  **`=` (Exact Match):** `location = /favicon.ico`. If matched, stop immediately.
+2.  **`^~` (Preferential Prefix):** `location ^~ /images/`. If the longest matching prefix is a `^~` location, stop regex search.
+3.  **`~` (Case-Sensitive Regex):** Checked in definition order. First match wins.
+4.  **`~*` (Case-Insensitive Regex):** Checked in definition order. First match wins.
+5.  **Prefix Match:** `location /`. If no regex matched, use the longest prefix match found earlier.
+
+**Example:**
+```nginx
+location / {
+    # Rule A (Prefix)
+}
+location = / {
+    # Rule B (Exact)
+}
+location /documents/ {
+    # Rule C (Prefix)
+}
+location ^~ /images/ {
+    # Rule D (Preferential Prefix)
+}
+location ~* \.(gif|jpg)$ {
+    # Rule E (Regex)
+}
+```
+*   Request `/`: Matches A and B. B is exact, so **B** wins.
+*   Request `/index.html`: Matches A. No regex matches. **A** wins.
+*   Request `/documents/document.html`: Matches A and C. C is longer. No regex matches. **C** wins.
+*   Request `/images/logo.jpg`: Matches A and D. D is preferential prefix. Stops searching regex. **D** wins. (Note: E is ignored).
+*   Request `/documents/logo.jpg`: Matches A and C. Checks regex. Matches E. **E** wins.
+
+## Reverse Proxying and Load Balancing
+
+Nginx is arguably the most popular Reverse Proxy. It accepts requests and forwards them to backend servers (Upstreams) via HTTP, FastCGI, uWSGI, SCGI, or Memcached.
+
+### Basic Proxying
+
+```nginx
+location /api/ {
+    proxy_pass http://backend_server;
+    
+    # Essential Headers
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    
+    # Timeouts
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+}
+```
+
+**Note on `proxy_pass` Trailing Slash:**
+*   `proxy_pass http://backend/`: Replaces the matched location part with `/`.
+    *   Request `/api/users` -> Upstream `/users`.
+*   `proxy_pass http://backend`: Appends the full URI.
+    *   Request `/api/users` -> Upstream `/api/users`.
+
+### Load Balancing Strategies
+
+Define a pool of servers using `upstream`.
 
 ```nginx
 upstream backend_cluster {
-    least_conn;                 # Load balancing algorithm
-    server 10.0.0.1:8080 weight=3;
-    server 10.0.0.2:8080;
-    keepalive 32;               # Keep connections to upstream open
+    # 1. Round Robin (Default)
+    server 10.0.0.1;
+    server 10.0.0.2;
+
+    # 2. Least Connections (Recommended for varying request times)
+    least_conn;
+    
+    # 3. IP Hash (Sticky Sessions)
+    # ip_hash;
+    
+    # 4. Generic Hash (Consistent Hashing)
+    # hash $request_uri consistent;
+    
+    # Parameters
+    server 10.0.0.3 weight=3;        # Receive 3x traffic
+    server 10.0.0.4 max_fails=3 fail_timeout=30s; # Circuit breaker
+    server 10.0.0.5 backup;          # Only used if others are down
+}
+```
+
+### Keep-Alive to Upstream
+
+By default, Nginx closes the connection to the backend after every request. This is inefficient for TLS backends or high throughput.
+
+To enable Keep-Alive:
+```nginx
+upstream backend {
+    server 10.0.0.1:8080;
+    keepalive 32;  # Number of idle connections to keep open
 }
 
 server {
-    location /api/ {
-        proxy_pass http://backend_cluster;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+    location / {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;       # Required for Keep-Alive
+        proxy_set_header Connection ""; # Clear the "close" header
     }
 }
 ```
 
-**Load Balancing Algorithms:**
-*   `round-robin` (Default): Distributes sequentially.
-*   `least_conn`: Sends to the server with fewest active connections.
-*   `ip_hash`: Sticky session based on client IP.
-*   `hash $key`: Generic hash (e.g., by URL).
+## Content Caching
 
-### 3. API Gateway
+Nginx can act as a robust Content Delivery Network (CDN) node using `proxy_cache`.
 
-Nginx is widely used as an API Gateway to handle cross-cutting concerns before requests hit microservices.
-*   **Rate Limiting:** `limit_req_zone` (Leaky Bucket algorithm).
-*   **Authentication:** `auth_request` (Delegates auth to a sub-request), JWT validation (commercial or 3rd party).
-*   **Request/Response Transformation:** Modifying headers or JSON bodies.
+### Configuring the Cache Zone
 
-## Performance Tuning
+This must be done in the `http` context.
 
-To get the most out of Nginx on high-traffic hardware:
+```nginx
+http {
+    proxy_cache_path /var/cache/nginx 
+                     levels=1:2 
+                     keys_zone=my_cache:10m 
+                     max_size=10g 
+                     inactive=60m 
+                     use_temp_path=off;
+}
+```
 
-### Worker Configuration
-*   `worker_processes auto;`: Binds one worker per CPU core.
-*   `worker_cpu_affinity`: Explicitly binds workers to cores to prevent cache thrashing (done automatically by `auto` in modern versions).
-*   `worker_rlimit_nofile`: Increases the limit of open file descriptors for the worker process (must be > `worker_connections`).
+*   `levels=1:2`: Directory hashing structure (e.g., `/c/29/b7f54...`). Prevents too many files in one directory.
+*   `keys_zone`: Name and shared memory size (1MB stores ~8000 keys).
+*   `inactive`: Delete content not accessed within this time.
+*   `use_temp_path=off`: Write directly to cache directory to avoid unnecessary file copying.
 
-### Connection Limits
-*   `events { worker_connections 10240; }`: The max simultaneous connections per worker.
-*   **Max Clients Formula:** `(worker_processes * worker_connections) / (Is_Reverse_Proxy ? 2 : 1)`.
-    *   Divided by 2 because a proxy holds one connection to the client and one to the upstream.
+### Enabling Caching
 
-### Keepalive Optimization
-Creating TCP connections is expensive (3-way handshake).
-*   **Client side:** `keepalive_timeout 65;` (Reuses connection for multiple requests).
-*   **Upstream side:**
+```nginx
+location / {
+    proxy_cache my_cache;
+    proxy_cache_key "$scheme$request_method$host$request_uri";
+    
+    # Caching Rules
+    proxy_cache_valid 200 302 10m;
+    proxy_cache_valid 404      1m;
+    
+    # Handling Errors (Stale Cache)
+    # If backend is down (500/502/504), serve cached content even if expired.
+    proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+    
+    # Locking (Dog-pile effect prevention)
+    # Only one request goes to backend to populate cache; others wait.
+    proxy_cache_lock on;
+    
+    add_header X-Cache-Status $upstream_cache_status; # HIT/MISS/BYPASS
+}
+```
+
+## Security and Hardening
+
+Nginx is secure by default, but production environments require active hardening.
+
+### 1. Hiding Metadata
+Prevent leaking version numbers to scanners.
+```nginx
+server_tokens off;
+```
+(Note: To remove the "Server: nginx" header entirely, you need the `headers-more` module or recompile source).
+
+### 2. TLS Best Practices (2024/2025 Edition)
+Use Mozilla's SSL Configuration Generator (Intermediate profile is usually best).
+
+```nginx
+ssl_protocols TLSv1.2 TLSv1.3; # Drop SSLv3, TLS 1.0, 1.1
+ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+ssl_prefer_server_ciphers off;
+
+# Session Resumption (Performance)
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 1d;
+ssl_session_tickets off;
+
+# HSTS (Strict Transport Security)
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+```
+
+### 3. Rate Limiting (DDoS Mitigation)
+Nginx uses the **Leaky Bucket** algorithm.
+
+**Zone Definition:**
+```nginx
+# 10 requests per second based on binary IP address
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+```
+
+**Application:**
+```nginx
+location /api/ {
+    limit_req zone=api_limit burst=20 nodelay;
+    # burst=20: Allow a queue of 20 requests.
+    # nodelay: Don't slow them down, just reject if queue is full.
+}
+```
+
+### 4. Preventing Buffer Overflows
+Restrict the size of data clients can send.
+
+```nginx
+client_body_buffer_size 16k;
+client_header_buffer_size 1k;
+client_max_body_size 8m;      # Max upload size
+large_client_header_buffers 2 1k;
+```
+
+## Performance Tuning and Kernel Optimization
+
+Configuring Nginx is only half the battle. You must tune the Linux kernel to handle high concurrency.
+
+### Nginx Configuration
+```nginx
+worker_processes auto;
+worker_rlimit_nofile 65535; # File descriptors limit for the process
+
+events {
+    worker_connections 65535;
+    multi_accept on; # Accept as many connections as possible per wake-up
+    use epoll;
+}
+
+http {
+    # File I/O
+    sendfile on;
+    tcp_nopush on; # Send headers + file start in one packet
+    tcp_nodelay on; # Disable Nagle's algorithm (lower latency)
+    
+    # Keepalive
+    keepalive_timeout 65;
+    keepalive_requests 1000; # Reuse connection 1000 times before closing
+    
+    # Compression
+    gzip on;
+    gzip_comp_level 5; # Balance CPU and Size (1-9)
+    gzip_min_length 256;
+    gzip_types application/json application/javascript text/css text/xml;
+}
+```
+
+### Linux Kernel Tuning (`/etc/sysctl.conf`)
+Nginx cannot open more sockets than the kernel allows.
+
+```ini
+# Max open files (system wide)
+fs.file-max = 2097152
+
+# Backlog for incoming connections (Syn Queue)
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+
+# Ephemeral Ports (Increase range for outgoing proxy connections)
+net.ipv4.ip_local_port_range = 1024 65535
+
+# Time Wait reuse (Safe for Nginx acting as client to upstream)
+net.ipv4.tcp_tw_reuse = 1
+
+# Timeout for Fin-Wait-2
+net.ipv4.tcp_fin_timeout = 15
+```
+
+Apply with `sysctl -p`.
+
+Also, verify `ulimit -n` is high enough for the user running nginx. Edit `/etc/security/limits.conf`:
+```
+nginx soft nofile 65535
+nginx hard nofile 65535
+```
+
+## Observability and Debugging
+
+### Detailed Logging
+The default log format is often insufficient for debugging performance issues.
+
+```nginx
+log_format perf '$remote_addr - $remote_user [$time_local] '
+                '"$request" $status $body_bytes_sent '
+                '"$http_referer" "$http_user_agent" '
+                'rt=$request_time urt=$upstream_response_time '
+                'uct=$upstream_connect_time uht=$upstream_header_time';
+
+access_log /var/log/nginx/access.log perf;
+```
+*   `rt`: Total Request Time (Nginx + Upstream).
+*   `urt`: Upstream Response Time (Backend processing time).
+*   `uct`: Time to establish TCP connection to backend.
+
+### Debug Log
+To trace exactly how Nginx processes a request (headers parsing, rewrite rules logic), enable debug logging. **Warning: Generates massive logs.**
+
+1.  Ensure Nginx is compiled with `--with-debug`.
+2.  Configure: `error_log /var/log/nginx/debug.log debug;`
+3.  Or, enable only for specific IPs:
     ```nginx
-    upstream backend {
-        server ...;
-        keepalive 16;
+    events {
+        debug_connection 192.168.1.1;
     }
     ```
-    And in location: `proxy_http_version 1.1; proxy_set_header Connection "";`
-
-### Buffering
-*   `client_body_buffer_size`: If the request body fits in the buffer, it's handled in memory. If not, it's written to a temp file (slow).
-*   `proxy_buffer_size` / `proxy_buffers`: Affects how Nginx reads responses from upstream. Turning buffering *off* (`proxy_buffering off;`) streams the response to the client immediately but ties up the worker process if the client is slow.
-
-## Comparison with Alternatives
-
-### Nginx vs. Apache
-*   **Architecture:** Apache (prefork/worker) creates threads/processes. Nginx is event-driven.
-*   **Performance:** Nginx is faster for static files and high concurrency. Apache is comparable for dynamic content processing (since the bottleneck is the app runtime, e.g., PHP).
-*   **Flexibility:** Apache supports `.htaccess` files for dynamic, per-directory configuration. Nginx does not (for performance reasons), requiring a central reload.
-
-### Nginx vs. HAProxy
-*   **Focus:** HAProxy is a dedicated TCP/HTTP load balancer. It lacks web server features (serving static files).
-*   **Observability:** HAProxy generally offers more granular stats and detailed health checks out-of-the-box.
-*   **Use Case:** Often used together. HAProxy as the edge ingress (L4/L7 balancing), pointing to Nginx layers for termination and routing.
-
-### Nginx vs. Envoy
-*   **Era:** Envoy was born in the container/Kubernetes era (Service Mesh).
-*   **Dynamism:** Envoy is designed for rapid, API-driven configuration updates (xDS protocol) without reloading the process. Nginx requires a config reload (SIGHUP) or the commercial Nginx Plus API.
-*   **Complexity:** Envoy is more complex to configure manually; it is usually managed by a control plane (like Istio).
-
-## Debugging and Observability
-
-### Logging
-The `log_format` directive allows capturing specific variables.
-```nginx
-log_format detailed '$remote_addr - $remote_user [$time_local] '
-                    '"$request" $status $body_bytes_sent '
-                    '"$http_referer" "$http_user_agent" '
-                    '$request_time $upstream_response_time $pipe';
-```
-*   `$request_time`: Total time spent processing the request.
-*   `$upstream_response_time`: Time spent waiting for the backend.
 
 ### Stub Status
-A simple module (`ngx_http_stub_status_module`) provides basic metrics.
+The `ngx_http_stub_status_module` provides real-time metrics.
+
 ```nginx
-location /nginx_status {
+location /metrics {
     stub_status;
     allow 127.0.0.1;
     deny all;
 }
 ```
-Output: Active connections, accepts, handled requests.
+Output explanation:
+*   `Active connections`: Open connections (including idle).
+*   `accepts`: Total accepted connections.
+*   `handled`: Total handled connections (accepts - failures).
+*   `requests`: Total requests (handled * requests/conn).
 
-### Debugging
-If Nginx behaves strangely:
-1.  Check logs: `/var/log/nginx/error.log`.
-2.  Enable debug logging (requires `--with-debug` compile flag): `error_log /path/to/log debug;`.
-3.  **Config Dump:** `nginx -T` dumps the full resolved configuration to stdout (useful to see include files merged).
+## Extending Nginx with Lua (OpenResty)
 
-## Security Best Practices
+Standard Nginx config is declarative and limited in logic. **OpenResty** integrates **LuaJIT** into Nginx, allowing you to script request handling with high performance.
 
-1.  **Hide Version:** `server_tokens off;` prevents leaking the Nginx version number.
-2.  **TLS Hardening:**
-    *   Disable SSLv3/TLS1.0/TLS1.1.
-    *   Use strong ciphers.
-    *   Enable HSTS (`Strict-Transport-Security`).
-3.  **Buffer Overflow Protection:**
-    *   `client_body_buffer_size`
-    *   `client_header_buffer_size`
-    *   `client_max_body_size` (Limit upload size)
-    *   `large_client_header_buffers`
-    Limiting these prevents attackers from exhausting memory with massive requests.
-4.  **Run as Non-Privileged User:** Never run workers as root.
+### Common Use Cases
+1.  **Complex Routing:** Route based on Redis key lookup.
+2.  **Authentication:** Validate OAuth2/JWT tokens directly in Nginx before hitting the backend.
+3.  **Dynamic Upstreams:** Change backend targets without reloading.
+4.  **WAF:** Build custom firewall rules (e.g., Lua-Resty-WAF).
 
-## References & Resources
+### Example: Hello World in Lua
+```nginx
+location /lua {
+    default_type 'text/plain';
+    content_by_lua_block {
+        ngx.say("Hello from Lua!")
+        ngx.log(ngx.ERR, "This is a log entry")
+    }
+}
+```
 
-*   [Nginx Official Documentation](http://nginx.org/en/docs/)
-*   [Nginx Wiki](https://wiki.nginx.org/Main)
-*   [The C10K Problem](http://www.kegel.com/c10k.html)
-*   [OpenResty](https://openresty.org/en/)
-*   [Mozilla SSL Configuration Generator](https://ssl-config.mozilla.org/) - Essential for secure TLS configs.
+### Example: Non-blocking Database Access
+Lua scripts in OpenResty are synchronous in code style but asynchronous in execution (coroutines).
+
+```lua
+content_by_lua_block {
+    local redis = require "resty.redis"
+    local red = redis:new()
+    
+    red:set_timeout(1000)
+    local ok, err = red:connect("127.0.0.1", 6379)
+    
+    if not ok then
+        ngx.say("failed to connect: ", err)
+        return
+    end
+    
+    local res, err = red:get("my_key")
+    if not res then
+        ngx.say("failed to get: ", err)
+        return
+    end
+    
+    if res == ngx.null then
+        ngx.say("key not found")
+        return
+    end
+    
+    ngx.say("Key value: ", res)
+}
+```
+
+## Migration from Apache
+
+Migrating from Apache to Nginx requires a mindset shift from ".htaccess per directory" to "Centralized Server Blocks".
+
+### Key Differences
+
+| Feature | Apache | Nginx |
+| :--- | :--- | :--- |
+| **Architecture** | Process/Thread based | Event-driven |
+| **Static Files** | Good | Excellent (Sendfile/Async I/O) |
+| **Configuration** | Distributed (`.htaccess`) | Centralized (`nginx.conf`) |
+| **PHP** | `mod_php` (Embedded) | `php-fpm` (FastCGI over socket) |
+| **Rewrites** | `mod_rewrite` (Complex) | `rewrite` / `return` (Simpler) |
+
+### Rewrite Rule Translation
+
+**Apache:**
+```apache
+RewriteEngine On
+RewriteRule ^/user/([0-9]+)$ /profile.php?id=$1 [L]
+```
+
+**Nginx:**
+```nginx
+location ~ ^/user/([0-9]+)$ {
+    rewrite ^/user/([0-9]+)$ /profile.php?id=$1 break;
+    # Or better, simply proxy to PHP
+    fastcgi_pass ...;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME /var/www/profile.php;
+    fastcgi_param QUERY_STRING id=$1;
+}
+```
+
+### Replacing .htaccess
+Nginx does not support `.htaccess`. This is a feature, not a bug, as scanning directories for `.htaccess` files incurs significant I/O penalties. You must migrate these rules into the `server` block of your main config.
+
+**Wordpress Nginx Config (The Classic Example):**
+Instead of the complex Apache rewrite rules for Wordpress, Nginx uses `try_files`.
+
+```nginx
+location / {
+    # Try finding the file, then the directory, then fall back to index.php
+    try_files $uri $uri/ /index.php?$args;
+}
+
+location ~ \.php$ {
+    include snippets/fastcgi-php.conf;
+    fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+}
+```
+
+## Summary
+
+Nginx is a powerful tool that rewards deep understanding. By mastering the event loop, the location search priority, and the split between static serving and upstream proxying, you can architect systems that are resilient, secure, and incredibly fast.
+
+Remember:
+1.  **Performance** comes from non-blocking I/O and kernel tuning.
+2.  **Security** comes from minimizing surface area (compiling only what you need) and strict HTTP headers.
+3.  **Reliability** comes from understanding the distinction between the Master and Worker processes and avoiding blocking operations in the configuration.
