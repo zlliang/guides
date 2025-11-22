@@ -58,5 +58,15 @@
     "created_date": "2025-11-05",
     "updated_date": "2025-11-05",
     "generated_by": "Amp"
+  },
+  {
+    "topic": "C Programming Language",
+    "path": {
+      "en": "en/c-programming.md",
+      "cn": "cn/c-programming.md"
+    },
+    "created_date": "2025-11-22",
+    "updated_date": "2025-11-22",
+    "generated_by": "Amp"
   }
 ]

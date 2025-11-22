@@ -18,3 +18,4 @@ The assistant will generate both language versions and automatically update this
 | English Writing | [en/english-writing.md](en/english-writing.md) | [cn/english-writing.md](cn/english-writing.md) | 2025-11-03 | 2025-11-03 | [Amp](https://ampcode.com) |
 | Fish Shell | [en/fish-shell.md](en/fish-shell.md) | [cn/fish-shell.md](cn/fish-shell.md) | 2025-11-05 | 2025-11-05 | [Amp](https://ampcode.com) |
 | Bash Scripting | [en/bash-scripting.md](en/bash-scripting.md) | [cn/bash-scripting.md](cn/bash-scripting.md) | 2025-11-05 | 2025-11-05 | [Amp](https://ampcode.com) |
+| C Programming Language | [en/c-programming.md](en/c-programming.md) | [cn/c-programming.md](cn/c-programming.md) | 2025-11-22 | 2025-11-22 | [Amp](https://ampcode.com) |
