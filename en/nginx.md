@@ -4,20 +4,6 @@ Nginx (pronounced "engine-x") is the world's most popular web server, reverse pr
 
 This guide is an exhaustive resource for engineers who need to understand Nginx not just as a user, but as an operator and architect. It covers internal mechanics, advanced configuration, kernel-level tuning, security hardening, and the ecosystem around OpenResty and Lua.
 
-## Table of Contents
-
-1.  [Architecture and Internals](#architecture-and-internals)
-2.  [Installation and Build Options](#installation-and-build-options)
-3.  [Configuration Philosophy and Syntax](#configuration-philosophy-and-syntax)
-4.  [The HTTP Core](#the-http-core)
-5.  [Reverse Proxying and Load Balancing](#reverse-proxying-and-load-balancing)
-6.  [Content Caching](#content-caching)
-7.  [Security and Hardening](#security-and-hardening)
-8.  [Performance Tuning and Kernel Optimization](#performance-tuning-and-kernel-optimization)
-9.  [Observability and Debugging](#observability-and-debugging)
-10. [Extending Nginx with Lua (OpenResty)](#extending-nginx-with-lua-openresty)
-11. [Migration from Apache](#migration-from-apache)
-
 ## Architecture and Internals
 
 To master Nginx, one must first understand how it interacts with the operating system.

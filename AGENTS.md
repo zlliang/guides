@@ -18,6 +18,7 @@ Each guide corresponds to a specific topic (e.g., *Makefile*, *Zig programming l
   * Organize content into **well-defined sections** that progress logically — from **introductory concepts** to **advanced, in-depth material**.
   * **Do not use numbers in headings** (e.g., use `## Introduction` instead of `## 1. Introduction`).
   * **Do not use horizontal rules (`---`) between sections.**
+  * **Do not insert a Table of Contents (ToC).**
   * Add a **References & Resources** section at the end, if applicable.
   * Optionally include a **Quick Reference** section at the top for essential commands, syntax, or key takeaways.
 * **Style:**
