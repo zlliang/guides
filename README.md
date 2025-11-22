@@ -19,3 +19,4 @@ The assistant will generate both language versions and automatically update this
 | Fish Shell | [en/fish-shell.md](en/fish-shell.md) | [cn/fish-shell.md](cn/fish-shell.md) | 2025-11-05 | 2025-11-05 | [Amp](https://ampcode.com) |
 | Bash Scripting | [en/bash-scripting.md](en/bash-scripting.md) | [cn/bash-scripting.md](cn/bash-scripting.md) | 2025-11-05 | 2025-11-05 | [Amp](https://ampcode.com) |
 | C Programming Language | [en/c.md](en/c.md) | [cn/c.md](cn/c.md) | 2025-11-22 | 2025-11-22 | [Amp](https://ampcode.com) |
+| Nginx | [en/nginx.md](en/nginx.md) | [cn/nginx.md](cn/nginx.md) | 2025-11-22 | 2025-11-22 | [Amp](https://ampcode.com) |

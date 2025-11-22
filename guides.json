@@ -68,5 +68,15 @@
     "created_date": "2025-11-22",
     "updated_date": "2025-11-22",
     "generated_by": "Amp"
+  },
+  {
+    "topic": "Nginx",
+    "path": {
+      "en": "en/nginx.md",
+      "cn": "cn/nginx.md"
+    },
+    "created_date": "2025-11-22",
+    "updated_date": "2025-11-22",
+    "generated_by": "Amp"
   }
 ]
