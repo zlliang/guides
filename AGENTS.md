@@ -16,6 +16,7 @@ Each guide corresponds to a specific topic (e.g., *Makefile*, *Zig programming l
 * **Structure:**
   * Include a clear **title** followed by a concise **summary** of the topic.
   * Organize content into **well-defined sections** that progress logically — from **introductory concepts** to **advanced, in-depth material**.
+  * **Do not use numbers in headings** (e.g., use `## Introduction` instead of `## 1. Introduction`).
   * Add a **References & Resources** section at the end, if applicable.
   * Optionally include a **Quick Reference** section at the top for essential commands, syntax, or key takeaways.
 * **Style:**
@@ -23,7 +24,7 @@ Each guide corresponds to a specific topic (e.g., *Makefile*, *Zig programming l
   * Include **relevant links** and **code examples** where appropriate.
   * Use **lists**, **tables**, and **examples** to improve readability.
   * Avoid filler text, redundancy, or unnecessary verbosity.
-* **Length:** Unlimited — focus on **completeness, clarity, and readability** rather than brevity.
+* **Length:** Unlimited — generally **not less than 1000 lines** of Markdown. Focus on **completeness, clarity, and readability** rather than brevity.
 
 ## Update Behavior
 
