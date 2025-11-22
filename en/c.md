@@ -17,8 +17,6 @@ This guide serves as a comprehensive reference and tutorial, covering the langua
 | **Structures** | `struct Name { ... };` | `struct Point { int x, y; };` |
 | **Preprocessor** | `#include`, `#define`, `#ifdef` | `#define MIN(a,b) ((a)<(b)?(a):(b))` |
 
----
-
 ## History and Standards
 
 Understanding the version of C you are using is critical, as features and safety guarantees have evolved significantly.
@@ -47,8 +45,6 @@ A bug-fix release for C11 with no new language features.
 The next major revision.
 *   **Key Features:** `typeof`, `constexpr`, `nullptr`, `true`/`false` keywords (making `<stdbool.h>` unnecessary), standard attributes (`[[nodiscard]]`, `[[deprecated]]`), binary literals (`0b1010`), `#embed`.
 
----
-
 ## The Compilation Model
 
 C is a compiled language. The transformation from source code to executable involves distinct stages.
@@ -75,8 +71,6 @@ The linker (`ld`) combines object files and libraries.
 *   **Resolution:** Matches function calls to their definitions.
 *   **Relocation:** Assigns final memory addresses.
 *   **Output:** The executable binary.
-
----
 
 ## Basic Syntax and Structure
 
@@ -110,8 +104,6 @@ int main(int argc, char *argv[]) {
 ### Comments
 *   `// Single line comment` (C99+)
 *   `/* Multi-line comment */` (C89+)
-
----
 
 ## Variables and Data Types
 
@@ -153,8 +145,6 @@ C maps types closely to hardware words. Sizes are implementation-defined but str
 *   **Binary:** `0b1111011` (C23)
 *   **Suffixes:** `10u` (unsigned), `10L` (long), `10.0f` (float).
 
----
-
 ## Operators and Expressions
 
 ### Arithmetic
@@ -187,8 +177,6 @@ Crucial for systems programming.
 ```c
 int max = (a > b) ? a : b;
 ```
-
----
 
 ## Control Flow
 
@@ -267,8 +255,6 @@ error:
     return -1;
 ```
 
----
-
 ## Pointers and Memory
 
 Pointers are variables that store memory addresses. They provide power and danger in equal measure.
@@ -312,8 +298,6 @@ int result = fn(5, 10); // Calls add(5, 10)
 
 Use cases: Callbacks, interrupt handlers, sorting (qsort), dynamic dispatch.
 
----
-
 ## Arrays and Strings
 
 ### Arrays
@@ -345,8 +329,6 @@ char *ptr = "World";  // String literal (Read-Only memory!)
 *   `strdup(s)`: Duplicate string (allocates memory, user must free).
 
 **Safety Tip:** Prefer functions that take length arguments (like `snprintf`) over unbounded ones (like `sprintf` or `strcpy`).
-
----
 
 ## Memory Management
 
@@ -396,8 +378,6 @@ items = NULL; // Prevent dangling pointer usage
 4.  **Buffer Overflow:** Writing past the allocated size.
 
 Tools like **Valgrind** or **AddressSanitizer** (`-fsanitize=address`) are essential for detecting these.
-
----
 
 ## Structures and Unions
 
@@ -452,8 +432,6 @@ struct Flags {
 ```
 **Warning:** Implementation-dependent ordering (LSB vs MSB first).
 
----
-
 ## The Preprocessor Deep Dive
 
 The preprocessor runs before compilation.
@@ -507,8 +485,6 @@ enum Color {
 };
 ```
 
----
-
 ## The Standard Library
 
 C comes with a small but essential standard library.
@@ -542,8 +518,6 @@ Runtime checks.
 assert(ptr != NULL);
 ```
 Disable with `#define NDEBUG` before including `<assert.h>`.
-
----
 
 ## Advanced Topics
 
@@ -583,8 +557,6 @@ void log_msg(int count, ...) {
 Non-local jumps (goto across functions). Saves stack context.
 Used for exception-style error handling in C, but tricky (doesn't clean up stack variables automatically).
 
----
-
 ## Modern C Features (C99 / C11 / C23)
 
 ### C99
@@ -616,8 +588,6 @@ Used for exception-style error handling in C, but tricky (doesn't clean up stack
 *   **Attributes:** `[[nodiscard]] int important_func();`
 *   **Bit-precise integers:** `_BitInt(N)`.
 
----
-
 ## Undefined Behavior (UB)
 
 One of C's most distinctive aspects is "Undefined Behavior". The standard allows the compiler to assume certain errors *never happen*. If they do, the program can do anything (crash, work silently, corrupt data).
@@ -631,8 +601,6 @@ One of C's most distinctive aspects is "Undefined Behavior". The standard allows
 6.  **Violating Strict Aliasing:** Accessing a float as an int pointer.
 
 **Why UB exists:** It allows aggressive optimization. The compiler can assume loop counters don't wrap, pointers point to valid memory, etc.
-
----
 
 ## Best Practices
 
@@ -667,8 +635,6 @@ Hide implementation details (encapsulation).
 *   **Header:** `typedef struct Handle_T *Handle;`
 *   **Source:** `struct Handle_T { int internal_data; };`
 The user only sees the pointer `Handle`, preserving ABI stability.
-
----
 
 ## Tooling and Debugging
 
