@@ -1,4 +1,4 @@
-# C Programming Language Guide
+# C Programming Language
 
 The C programming language is one of the most influential and widely used programming languages in the history of computing. Created in the early 1970s by Dennis Ritchie at Bell Labs, it was originally designed for system programming and implementing the UNIX operating system. Despite its age, C remains the backbone of modern infrastructure, powering operating systems, embedded systems, high-performance servers, and language runtimes.
 
